@@ -48,6 +48,7 @@ class Chef
             @node[:platform],
             @node[:platform_version]
           )
+          raise Chef::Exception::FileNotFound, "Cannot find #{@new_resource.source}!" unless filename && File.exists?(filename)
           Chef::Log.debug("Using local file for template:#{filename}")
           raw_template_file = ::File.open(filename)
         elsif @node.run_state[:template_cache].has_key?(template_cache_name)
