@@ -21,11 +21,11 @@
 # code and views.
 #
 
-merb_gems_version = "1.0.10"
+merb_gems_version = " > 1.0"
 dependency "merb-haml", merb_gems_version
 dependency "merb-assets", merb_gems_version
 dependency "merb-helpers", merb_gems_version
-dependency "chef", :immediate=>true
+dependency "chef", :immediate=>true unless defined?(Chef)
 
 use_template_engine :haml
 
