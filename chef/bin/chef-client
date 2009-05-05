@@ -43,8 +43,8 @@ opts = OptionParser.new do |opts|
     :splay=>       {  :short=>"-s SECONDS",       :long=>"--splay SECONDS",       :description=>"The splay time for running at intervals, in seconds", :proc=>nil },
     :log_level=>   {  :short=>"-l LEVEL",         :long=>"--loglevel LEVEL",      :description=>"Set the log level (debug, info, warn, error, fatal)", :proc=>lambda { |p| p.to_sym} },
     :log_location=>{  :short=>"-L LOGLOCATION",   :long=>"--logfile LOGLOCATION", :description=>"Set the log file location, defaults to STDOUT - recommended for daemonizing", :proc=>nil },
-    :use_syslog => {  :short=>"-S",               :long=>"--use-syslog",          :description=>"Log to syslog instead of a file (overrides -l and -L)", :proc=>nil}
-    :validation_token=>{ :short=>"-t TOKEN",      :long=>"--token TOKEN",         :description=>"Set the openid validation token", :proc=>nil },
+    :use_syslog => {  :short=>"-S",               :long=>"--use-syslog",          :description=>"Log to syslog instead of a file (overrides -l and -L)", :proc=>nil},
+    :validation_token=>{ :short=>"-t TOKEN",      :long=>"--token TOKEN",         :description=>"Set the openid validation token", :proc=>nil }
   }
 
   client_option_hash.each do |opt_key, opt_val|
@@ -106,7 +106,7 @@ Chef::Daemon.change_privilege
 Chef::Log.init(Chef::Config[:log_location])
 
 if config[:use_syslog]
-  require File.dirname(__FILE__)+"../vendor/syslog_logger"
+  require File.dirname(__FILE__)+"/../vendor/syslog_logger"
   Chef::Log.logger = SyslogLogger.new
 end
 
