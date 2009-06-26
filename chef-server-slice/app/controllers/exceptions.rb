@@ -21,19 +21,13 @@ class ChefServerSlice::Exceptions < ChefServerSlice::Application
   
   provides :html, :json
   
-  # handle NotFound exceptions (404)
-  def not_found
-    display params
-  end
-
-  # handle NotAcceptable exceptions (406)
-  def not_acceptable
-    display params
-  end
-  
-  # handle BadRequest exceptions (400)
-  def bad_request
-    display params
+  def standard_error
+    Merb.logger.warn(request.content_type)
+    if request.accept =~ /application\/json/
+      display({ "error" => request.exceptions }) 
+    else
+      raise request.exceptions.first 
+    end
   end
 
 end

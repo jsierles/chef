@@ -114,10 +114,10 @@ class Chef
         
         exec_processing_block = lambda do |pid, stdin, stdout, stderr|
           Chef::Log.debug("---- Begin output of #{args[:command]} ----")
-          Chef::Log.debug("STDOUT: #{stdout.string.chomp!}")  
-          Chef::Log.debug("STDERR: #{stderr.string.chomp!}") 
-          command_output << "STDOUT: #{stdout.string.chomp!}"
-          command_output << "STDERR: #{stderr.string.chomp!}"
+          Chef::Log.debug("STDOUT: #{stdout.string.chomp}")
+          Chef::Log.debug("STDERR: #{stderr.string.chomp}")
+          command_output << "STDOUT: #{stdout.string.chomp}"
+          command_output << "STDERR: #{stderr.string.chomp}"
           Chef::Log.debug("---- End output of #{args[:command]} ----")
         end
         
@@ -301,7 +301,10 @@ class Chef
 
               while !stdout_finished || !stderr_finished
                 begin
-                  ready = IO.select([stdout, stderr], nil, nil, 1.0)
+                  channels_to_watch = []
+                  channels_to_watch << stdout if !stdout_finished
+                  channels_to_watch << stderr if !stderr_finished
+                  ready = IO.select(channels_to_watch, nil, nil, 1.0)
                 rescue Errno::EAGAIN
                   results = Process.waitpid2(cid, Process::WNOHANG)
                   if results

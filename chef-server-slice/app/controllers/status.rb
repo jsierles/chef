@@ -21,10 +21,14 @@ require 'chef' / 'node'
 class ChefServerSlice::Status < ChefServerSlice::Application
 
   provides :html, :json
+  before :login_required 
 
   def index
-    @node_list = Chef::Node.list
-    display @node_list
+    @status = Chef::CouchDB.new.get_view("nodes", "status")["rows"].inject([]) do |result, item| 
+      result << item["value"]
+      result
+    end
+    display @status
   end
 
 end

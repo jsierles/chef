@@ -24,6 +24,7 @@ describe Chef::Provider::Mount::Mount, "load_current_resource" do
     @new_resource = mock("Chef::Resource::Mount", 
       :null_object => true,
       :device => "/dev/sdz1",
+      :device_type => :device,
       :name => "/tmp/foo",
       :mount_point => "/tmp/foo",
       :fstype => "ext3",
@@ -34,6 +35,7 @@ describe Chef::Provider::Mount::Mount, "load_current_resource" do
     @current_resource = mock("Chef::Resource::Mount", 
       :null_object => true,
       :device => "/dev/sdz1",
+      :device_type => :device,
       :name => "/tmp/foo",
       :mount_point => "/tmp/foo",
       :fstype => "ext3",
@@ -43,7 +45,9 @@ describe Chef::Provider::Mount::Mount, "load_current_resource" do
     @provider = Chef::Provider::Mount::Mount.new(@node, @new_resource)
     Chef::Resource::Mount.stub!(:new).and_return(@current_resource)
     ::File.stub!(:read).with("/etc/fstab").and_return "\n"
-    
+    ::File.stub!(:exists?).with("/dev/sdz1").and_return true
+    ::File.stub!(:exists?).with("/tmp/foo").and_return true
+
     @status = mock("Status", :exitstatus => 0)
     @provider.stub!(:popen4).and_return(@status)
     @stdin = mock("STDIN", :null_object => true)
@@ -66,7 +70,18 @@ describe Chef::Provider::Mount::Mount, "load_current_resource" do
     @current_resource.should_receive(:device).with(@new_resource.device)
     @provider.load_current_resource()
   end
-  
+ 
+  it "should raise an error if the mount device does not exist" do
+    ::File.stub!(:exists?).with("/dev/sdz1").and_return false
+    lambda { @provider.load_current_resource() }.should raise_error(Chef::Exceptions::Mount)
+  end
+
+  it "should raise an error if the mount point does not exist" do
+   ::File.stub!(:exists?).with("/tmp/foo").and_return false
+   lambda { @provider.load_current_resource() }.should raise_error(Chef::Exceptions::Mount)
+  end
+
+
   it "should set mounted true if the mount point is found in the mounts list" do
     @stdout.stub!(:each).and_yield("#{@new_resource.device} on #{@new_resource.mount_point}")
     @provider.stub!(:popen4).and_yield(@pid, @stdin, @stdout, @stderr).and_return(0)
@@ -79,7 +94,8 @@ describe Chef::Provider::Mount::Mount, "load_current_resource" do
     
     ::File.stub!(:symlink?).with("#{@new_resource.device}").and_return(true)
     ::File.stub!(:readlink).with("#{@new_resource.device}").and_return(target)
-        
+
+    @provider = Chef::Provider::Mount::Mount.new(@node, @new_resource)
     @stdout.stub!(:each).and_yield("#{target} on #{@new_resource.mount_point} type ext3 (rw)\n")
     @provider.stub!(:popen4).and_yield(@pid, @stdin, @stdout, @stderr).and_return(0)
     @current_resource.should_receive(:mounted).with(true)
@@ -175,9 +191,11 @@ describe Chef::Provider::Mount::Mount, "mount_fs" do
     @new_resource = mock("Chef::Resource::Mount", 
       :null_object => true,
       :device => "/dev/sdz1",
+      :device_type => :device,
       :name => "/tmp/foo",
       :mount_point => "/tmp/foo",
       :fstype => "ext3",
+      :device_type => :device,
       :mounted => false
     )
     @new_resource.stub!(:supports).and_return({:remount => false})
@@ -185,9 +203,11 @@ describe Chef::Provider::Mount::Mount, "mount_fs" do
     @current_resource = mock("Chef::Resource::Mount", 
       :null_object => true,
       :device => "/dev/sdz1",
+      :device_type => :device,
       :name => "/tmp/foo",
       :mount_point => "/tmp/foo",
       :fstype => "ext3",
+      :device_type => :device,
       :mounted => false
     )
     
@@ -233,6 +253,7 @@ describe Chef::Provider::Mount::Mount, "umount_fs" do
     @new_resource = mock("Chef::Resource::Mount", 
       :null_object => true,
       :device => "/dev/sdz1",
+      :device_type => :device,
       :name => "/tmp/foo",
       :mount_point => "/tmp/foo",
       :fstype => "ext3",
@@ -243,6 +264,7 @@ describe Chef::Provider::Mount::Mount, "umount_fs" do
     @current_resource = mock("Chef::Resource::Mount", 
       :null_object => true,
       :device => "/dev/sdz1",
+      :device_type => :device,
       :name => "/tmp/foo",
       :mount_point => "/tmp/foo",
       :fstype => "ext3",
@@ -281,6 +303,7 @@ describe Chef::Provider::Mount::Mount, "remount_fs" do
     @new_resource = mock("Chef::Resource::Mount", 
       :null_object => true,
       :device => "/dev/sdz1",
+      :device_type => :device,
       :name => "/tmp/foo",
       :mount_point => "/tmp/foo",
       :fstype => "ext3",
@@ -291,6 +314,7 @@ describe Chef::Provider::Mount::Mount, "remount_fs" do
     @current_resource = mock("Chef::Resource::Mount", 
       :null_object => true,
       :device => "/dev/sdz1",
+      :device_type => :device,
       :name => "/tmp/foo",
       :mount_point => "/tmp/foo",
       :fstype => "ext3",
@@ -340,6 +364,7 @@ describe Chef::Provider::Mount::Mount, "enable_fs" do
     @new_resource = mock("Chef::Resource::Mount", 
       :null_object => true,
       :device => "/dev/sdz1",
+      :device_type => :device,
       :name => "/tmp/foo",
       :mount_point => "/tmp/foo",
       :fstype => "ext3",
@@ -353,6 +378,7 @@ describe Chef::Provider::Mount::Mount, "enable_fs" do
     @current_resource = mock("Chef::Resource::Mount", 
       :null_object => true,
       :device => "/dev/sdz1",
+      :device_type => :device,
       :name => "/tmp/foo",
       :mount_point => "/tmp/foo",
       :fstype => "ext3",
@@ -389,6 +415,7 @@ describe Chef::Provider::Mount::Mount, "disable_fs" do
     @new_resource = mock("Chef::Resource::Mount", 
       :null_object => true,
       :device => "/dev/sdz1",
+      :device_type => :device,
       :name => "/tmp/foo",
       :mount_point => "/tmp/foo",
       :fstype => "ext3",
@@ -402,6 +429,7 @@ describe Chef::Provider::Mount::Mount, "disable_fs" do
     @current_resource = mock("Chef::Resource::Mount", 
       :null_object => true,
       :device => "/dev/sdz1",
+      :device_type => :device,
       :name => "/tmp/foo",
       :mount_point => "/tmp/foo",
       :fstype => "ext3",

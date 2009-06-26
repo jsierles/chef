@@ -129,7 +129,8 @@ describe Chef::Provider::Package::Apt, "install_package" do
       :name => "emacs",
       :version => nil,
       :package_name => "emacs",
-      :updated => nil
+      :updated => nil,
+      :options => nil
     )
     @provider = Chef::Provider::Package::Apt.new(@node, @new_resource)
   end
@@ -138,10 +139,21 @@ describe Chef::Provider::Package::Apt, "install_package" do
     @provider.should_receive(:run_command).with({
       :command => "apt-get -q -y install emacs=1.0",
       :environment => {
-        "DEBIAN_FRONTEND" => "noninteractive",
-        "LANG" => "en_US"
+        "DEBIAN_FRONTEND" => "noninteractive"
       }
     })
+    @provider.install_package("emacs", "1.0")
+  end
+
+  it "should run apt-get install with the package name and version and options if specified" do
+    @provider.should_receive(:run_command).with({
+      :command => "apt-get -q -y --force-yes install emacs=1.0",
+      :environment => {
+        "DEBIAN_FRONTEND" => "noninteractive"
+      }
+    })
+    @new_resource.stub!(:options).and_return("--force-yes")
+    
     @provider.install_package("emacs", "1.0")
   end
 end
@@ -155,7 +167,8 @@ describe Chef::Provider::Package::Apt, "upgrade_package" do
       :name => "emacs",
       :version => nil,
       :package_name => "emacs",
-      :updated => nil
+      :updated => nil,
+      :options => nil
     )
     @provider = Chef::Provider::Package::Apt.new(@node, @new_resource)
   end
@@ -174,7 +187,8 @@ describe Chef::Provider::Package::Apt, "remove_package" do
       :name => "emacs",
       :version => nil,
       :package_name => "emacs",
-      :updated => nil
+      :updated => nil,
+      :options => nil
     )
     @provider = Chef::Provider::Package::Apt.new(@node, @new_resource)
   end
@@ -183,10 +197,21 @@ describe Chef::Provider::Package::Apt, "remove_package" do
     @provider.should_receive(:run_command).with({
       :command => "apt-get -q -y remove emacs",
       :environment => {
-        "DEBIAN_FRONTEND" => "noninteractive",
-        "LANG" => "en_US"
+        "DEBIAN_FRONTEND" => "noninteractive"
       }
     })
+    @provider.remove_package("emacs", "1.0")
+  end
+
+  it "should run apt-get remove with the package name and options if specified" do
+    @provider.should_receive(:run_command).with({
+      :command => "apt-get -q -y --force-yes remove emacs",
+      :environment => {
+        "DEBIAN_FRONTEND" => "noninteractive"
+      }
+    })
+    @new_resource.stub!(:options).and_return("--force-yes")
+
     @provider.remove_package("emacs", "1.0")
   end
 end
@@ -199,7 +224,8 @@ describe Chef::Provider::Package::Apt, "purge_package" do
       :name => "emacs",
       :version => nil,
       :package_name => "emacs",
-      :updated => nil
+      :updated => nil,
+      :options => nil
     )
     @provider = Chef::Provider::Package::Apt.new(@node, @new_resource)
   end
@@ -208,10 +234,21 @@ describe Chef::Provider::Package::Apt, "purge_package" do
     @provider.should_receive(:run_command).with({
       :command => "apt-get -q -y purge emacs",
       :environment => {
-        "DEBIAN_FRONTEND" => "noninteractive",
-        "LANG" => "en_US"
+        "DEBIAN_FRONTEND" => "noninteractive"
       }
     })
+    @provider.purge_package("emacs", "1.0")
+  end
+
+  it "should run apt-get purge with the package name and options if specified" do
+    @provider.should_receive(:run_command).with({
+      :command => "apt-get -q -y --force-yes purge emacs",
+      :environment => {
+        "DEBIAN_FRONTEND" => "noninteractive"
+      }
+    })
+    @new_resource.stub!(:options).and_return("--force-yes")
+
     @provider.purge_package("emacs", "1.0")
   end
 end
@@ -241,8 +278,7 @@ describe Chef::Provider::Package::Apt, "preseed_package" do
     @provider.should_receive(:run_command).with({
       :command => "debconf-set-selections /tmp/emacs-10.seed",
       :environment => {
-        "DEBIAN_FRONTEND" => "noninteractive",
-        "LANG" => "en_US"
+        "DEBIAN_FRONTEND" => "noninteractive"
       }
     }).and_return(true)
     @provider.preseed_package("emacs", "10")

@@ -31,7 +31,6 @@ class Chef
           include Singleton
 
           def initialize
-            @created_at = Time.now 
             load_data
           end
 
@@ -41,7 +40,7 @@ class Chef
             # run once mode
             if interval == 0
               return false
-            elsif (Time.now - @created_at) > interval
+            elsif (Time.now - @updated_at) > interval
               return true
             end
 
@@ -57,26 +56,37 @@ class Chef
           end
 
           def load_data
-            parsed = String.new
-            helper = ::File.join(::File.dirname(__FILE__), 'yum-dump-json.py')
+            @data = Hash.new
+            error = String.new
+
+            helper = ::File.join(::File.dirname(__FILE__), 'yum-dump.py')
             status = popen4("python #{helper}", :waitlast => true) do |pid, stdin, stdout, stderr|
               stdout.each do |line|
-                parsed << line
+                line.chomp!
+                name, type, epoch, version, release, arch = line.split(',')
+                type_sym = type.to_sym
+                if !@data.has_key?(name)
+                  @data[name] = Hash.new
+                end
+                @data[name][type_sym] = { :epoch => epoch, :version => version,
+                                          :release => release, :arch => arch }
               end
+              
+              error = stderr.readlines
             end
 
             unless status.exitstatus == 0
-              raise Chef::Exceptions::Package, "yum failed - #{status.inspect}!"
+              raise Chef::Exceptions::Package, "yum failed - #{status.inspect} - returns: #{error}"
             end
 
-            @data = JSON.parse(parsed)
+            @updated_at = Time.now
           end
           alias :reload :load_data
 
           def version(package_name, type)
             if (x = @data[package_name])
               if (y = x[type])
-                return "#{y["version"]}-#{y["release"]}"
+                return "#{y[:version]}-#{y[:release]}"
               end
             end
 
@@ -84,11 +94,11 @@ class Chef
           end
 
           def installed_version(package_name)
-            version(package_name, "installed")
+            version(package_name, :installed)
           end
 
           def candidate_version(package_name)
-            version(package_name, "available")
+            version(package_name, :available)
           end
          
           def flush
@@ -142,9 +152,16 @@ class Chef
         end
 
         def remove_package(name, version)
-          run_command(
-            :command => "yum -q -y remove #{name}-#{version}"
-          )
+          if version
+            run_command(
+             :command => "yum -q -y remove #{name}-#{version}"
+            )
+          else
+            run_command(
+             :command => "yum -q -y remove #{name}"
+            )
+          end
+            
           @yum.flush
         end
       

@@ -23,15 +23,20 @@ require 'net/https'
 require 'uri'
 require 'json'
 require 'tempfile'
+require 'singleton'
 
 class Chef
   class REST
+
+    class CookieJar < Hash
+      include Singleton
+    end
     
     attr_accessor :url, :cookies
     
     def initialize(url)
       @url = url
-      @cookies = Hash.new
+      @cookies = CookieJar.instance
     end
     
     # Register for an OpenID
@@ -69,7 +74,7 @@ class Chef
         { "password" => pass }
       )
     end
-    
+
     # Send an HTTP GET request to the path
     #
     # === Parameters

@@ -62,10 +62,9 @@ class Chef
       
         def install_package(name, version)
           run_command(
-            :command => "apt-get -q -y install #{name}=#{version}",
+            :command => "apt-get -q -y#{expand_options(@new_resource.options)} install #{name}=#{version}",
             :environment => {
-              "DEBIAN_FRONTEND" => "noninteractive",
-              "LANG" => "en_US"
+              "DEBIAN_FRONTEND" => "noninteractive"
             }
           )
         end
@@ -76,20 +75,18 @@ class Chef
       
         def remove_package(name, version)
           run_command(
-            :command => "apt-get -q -y remove #{@new_resource.package_name}",
+            :command => "apt-get -q -y#{expand_options(@new_resource.options)} remove #{@new_resource.package_name}",
             :environment => {
-              "DEBIAN_FRONTEND" => "noninteractive",
-              "LANG" => "en_US"
+              "DEBIAN_FRONTEND" => "noninteractive"
             }
           )
         end
       
         def purge_package(name, version)
           run_command(
-            :command => "apt-get -q -y purge #{@new_resource.package_name}",
+            :command => "apt-get -q -y#{expand_options(@new_resource.options)} purge #{@new_resource.package_name}",
             :environment => {
-              "DEBIAN_FRONTEND" => "noninteractive",
-              "LANG" => "en_US"
+              "DEBIAN_FRONTEND" => "noninteractive"
             }
           )
         end
@@ -101,8 +98,7 @@ class Chef
             run_command(
               :command => "debconf-set-selections #{preseed_file}",
               :environment => {
-                "DEBIAN_FRONTEND" => "noninteractive",
-                "LANG" => "en_US"
+                "DEBIAN_FRONTEND" => "noninteractive"
               }
             )
           end

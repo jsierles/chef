@@ -40,6 +40,23 @@ describe Chef::Provider::Template, "action_create" do
     Chef::FileCache.stub!(:move_to).and_return(true)
     Chef::FileCache.stub!(:load).and_return("monkeypoop")
   end
+
+  describe Chef::Provider::Template, "action_create solo" do
+    before  do
+      Chef::Config[:solo] = true
+    end
+
+    after do
+      Chef::Config[:solo] = false
+    end
+    
+    it "should load the correct file from the FileCache" do
+      Chef::Config[:file_cache_path] = '/var/chef'
+      @provider.stub!(:find_preferred_file).and_return('/var/chef/site-cookbooks/joe/templates/default/joe.erb')
+      Chef::FileCache.should_receive(:load).with('site-cookbooks/joe/templates/default/joe.erb').and_return('joe template')
+      do_action_create
+    end
+  end
   
   def do_action_create
     Chef::REST.stub!(:new).and_return(@rest)    
@@ -117,7 +134,6 @@ describe Chef::Provider::Template, "action_create" do
     Chef::FileCache.should_not_receive(:move_to)
     do_action_create
   end
-  
 end
 
 describe Chef::Provider::Template, "action_create_if_missing" do
@@ -160,6 +176,6 @@ describe Chef::Provider::Template, "generate_url" do
   it "should return a composed url if it does not start with http" do
     Chef::Platform.stub!(:find_platform_and_version).and_return(["monkey", "1.0"])
     @node.fqdn("monkeynode")
-    @provider.generate_url('default/something', "templates").should eql("cookbooks/daft/templates?id=default/something&platform=monkey&version=1.0&fqdn=monkeynode")
+    @provider.generate_url('default/something', "templates").should eql("cookbooks/daft/templates?id=default/something&platform=monkey&version=1.0&fqdn=monkeynode&node_name=latte")
   end
 end

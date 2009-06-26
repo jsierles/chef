@@ -1,11 +1,14 @@
 # Go to http://wiki.merbivore.com/pages/init-rb
  
 require 'config/dependencies.rb'
-require 'chef' unless defined?(Chef)
- 
+unless defined?(Chef)
+  gem "chef", "=" + CHEF_SERVER_VERSION if CHEF_SERVER_VERSION
+  require 'chef'  
+end
+
 use_test :rspec
 use_template_engine :haml
- 
+
 Merb::Config.use do |c|
   c[:use_mutex] = false
   c[:session_id_key] = '_chef_server_session_id'

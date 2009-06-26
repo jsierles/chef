@@ -1,11 +1,15 @@
 require 'rubygems'
 require 'rake/gempackagetask'
 
-require 'merb-core'
-require 'merb-core/tasks/merb'
+begin
+  require 'merb-core'
+  require 'merb-core/tasks/merb'
+rescue LoadError
+  nil
+end
 
 GEM_NAME = "chef-server-slice"
-CHEF_SERVER_VERSION="0.6.2"
+CHEF_SERVER_VERSION="0.7.5"
 AUTHOR = "Opscode"
 EMAIL = "chef@opscode.com"
 HOMEPAGE = "http://wiki.opscode.com/display/chef"
@@ -63,7 +67,3 @@ task :gemspec do
   end
 end
 
-require 'spec/rake/spectask'
-require 'merb-core/test/tasks/spectasks'
-desc 'Default: run spec examples'
-task :default => 'spec'

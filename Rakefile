@@ -25,10 +25,10 @@ end
 
 desc "Run the rspec tests"
 task :spec do
-  gems.each do |dir|
-    Dir.chdir(dir) { sh "rake spec" }
-  end
+  Dir.chdir("chef") { sh "rake spec" }
 end
+
+task :default => :spec
 
 def start_dev_environment(type="normal")
   @couchdb_server_pid = nil
@@ -112,15 +112,6 @@ task :dev => "dev:install" do
 end
 
 namespace :dev do  
-  desc "Install a Devel instance of Chef with the example-repository"
-  task :install do
-    gems.each do |dir|
-      Dir.chdir(dir) { sh "rake install" }
-    end
-    Dir.chdir("example-repository") { sh("rake install") }
-  end
-
-  
   desc "Install a test instance of Chef for doing features against"
   task :features do
     gems.each do |dir|
@@ -132,7 +123,31 @@ namespace :dev do
 end
 
 Cucumber::Rake::Task.new(:features) do |t|
-  t.step_pattern = 'features/steps/**/*.rb'
-  supportdir = 'features/support'
-  t.cucumber_opts = "--format pretty -r #{supportdir}"
+  t.profile = "default"
+end
+
+namespace :features do
+  Cucumber::Rake::Task.new(:api) do |t|
+    t.profile = "api"
+  end
+
+  Cucumber::Rake::Task.new(:client) do |t|
+    t.profile = "client"
+  end
+
+  Cucumber::Rake::Task.new(:search) do |t|
+    t.profile = "search"
+  end
+
+  namespace :provider do
+    Cucumber::Rake::Task.new(:remote_file) do |t|
+      t.profile = "provider_remote_file"
+    end
+    
+    namespace :package do
+      Cucumber::Rake::Task.new(:macports) do |t|
+        t.profile = "provider_package_macports"
+      end
+    end
+  end
 end

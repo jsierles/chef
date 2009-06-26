@@ -1,0 +1,104 @@
+#
+# Author:: Matthew Kent (<mkent@magoazul.com>)
+# Copyright:: Copyright (c) 2009 Matthew Kent
+# License:: Apache License, Version 2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+#     http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# yum-dump.py
+# Inspired by yumhelper.py by David Lutterkort
+#
+# Produce a list of installed and available packages using yum and dump the 
+# result to stdout.
+#
+# This invokes yum just as the command line would which makes it subject to 
+# all the caching related configuration paramaters in yum.conf.
+#
+# Can be run as non root, but that won't update the cache.
+
+import os
+import sys
+import time
+import yum
+
+from yum import Errors
+
+# Seconds to wait for exclusive access to yum
+lock_timeout = 10
+
+failure = False 
+
+# Can't do try: except: finally: in python 2.4 it seems, hence this fun.
+try:
+  try:
+    y = yum.YumBase()
+    # Only want our output
+    y.doConfigSetup(debuglevel=0, errorlevel=0)
+    
+    # Yum assumes it can update the cache directory. Disable this for non root 
+    # users.
+    y.conf.cache = os.geteuid() != 0
+    
+     # Spin up to lock_timeout.
+    countdown = lock_timeout
+    while True:
+      try:
+        y.doLock()
+      except Errors.LockError, e:
+        time.sleep(1)
+        countdown -= 1 
+        if countdown == 0:
+           print >> sys.stderr, "Error! Couldn't obtain an exclusive yum lock in %d seconds. Giving up." % lock_timeout
+           failure = True
+           sys.exit(1)
+      else:
+        break
+    
+    y.doTsSetup()
+    y.doRpmDBSetup()
+    
+    db = y.doPackageLists('all')
+    
+    y.closeRpmDB()
+  
+  except Errors.YumBaseError, e:
+    print >> sys.stderr, "Error! %s" % e 
+    failure = True
+    sys.exit(1)
+
+# Ensure we clear the lock.
+finally:
+  try:
+    y.doUnlock()
+  # Keep Unlock from raising a second exception as it does with a yum.conf 
+  # config error.
+  except Errors.YumBaseError:
+    if failure == False: 
+      print >> sys.stderr, "Error! %s" % e 
+    sys.exit(1)
+  
+for pkg in db.installed:
+     print '%s,installed,%s,%s,%s,%s' % ( pkg.name, 
+                                          pkg.epoch,
+                                          pkg.version,
+                                          pkg.release,
+                                          pkg.arch )
+for pkg in db.available:
+     print '%s,available,%s,%s,%s,%s' % ( pkg.name, 
+                                          pkg.epoch,
+                                          pkg.version,
+                                          pkg.release,
+                                          pkg.arch )
+
+sys.exit(0)

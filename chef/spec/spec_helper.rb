@@ -17,6 +17,7 @@
 #
 
 $:.unshift(File.join(File.dirname(__FILE__), "..", "lib"))
+$:.unshift(File.join(File.dirname(__FILE__), "..", "..", "chef-server", "lib"))
 
 require 'chef'
 require File.join(File.dirname(__FILE__), "/../lib/chef/util/fileedit")
@@ -35,3 +36,6 @@ end
 Dir[File.join(File.dirname(__FILE__), 'lib', '**', '*.rb')].sort.each { |lib| require lib }
 
 Chef::Config.log_level(:fatal)
+Chef::Log.level(Chef::Config.log_level)
+Chef::Config.solo(false)
+

@@ -26,14 +26,16 @@ describe Chef::Provider::Service::Redhat, "load_current_resource" do
       :null_object => true,
       :name => "chef",
       :service_name => "chef",
-      :enabled => false
+      :enabled => false,
+      :status_command => false
     )
 
     @current_resource = mock("Chef::Resource::Service",
       :null_object => true,
       :name => "chef",
       :service_name => "chef",
-      :enabled => false
+      :enabled => false,
+      :status_command => false
     )
 
     @provider = Chef::Provider::Service::Redhat.new(@node, @new_resource)
@@ -91,15 +93,16 @@ describe Chef::Provider::Service::Redhat, "enable_service" do
     @new_resource = mock("Chef::Resource::Service",
       :null_object => true,
       :name => "chef",
-      :service_name => "chef"
+      :service_name => "chef",
+      :status_command => false
     )
 
     @provider = Chef::Provider::Service::Redhat.new(@node, @new_resource)
     Chef::Resource::Service.stub!(:new).and_return(@current_resource)
   end
 
-  it "should call chkconfig --add 'service_name'" do
-    @provider.should_receive(:run_command).with({:command => "/sbin/chkconfig --add #{@new_resource.service_name}"})
+  it "should call chkconfig to add 'service_name'" do
+    @provider.should_receive(:run_command).with({:command => "/sbin/chkconfig #{@new_resource.service_name} on"})
     @provider.enable_service()
   end
 end
@@ -110,15 +113,16 @@ describe Chef::Provider::Service::Redhat, "disable_service" do
     @new_resource = mock("Chef::Resource::Redhat",
       :null_object => true,
       :name => "chef",
-      :service_name => "chef"
+      :service_name => "chef",
+      :status_command => false
     )
 
     @provider = Chef::Provider::Service::Redhat.new(@node, @new_resource)
     Chef::Resource::Service.stub!(:new).and_return(@current_resource)
   end
 
-  it "should call chkconfig --del 'service_name'" do
-    @provider.should_receive(:run_command).with({:command => "/sbin/chkconfig --del #{@new_resource.service_name}"})
+  it "should call chkconfig to del 'service_name'" do
+    @provider.should_receive(:run_command).with({:command => "/sbin/chkconfig #{@new_resource.service_name} off"})
     @provider.disable_service()
   end
 end
