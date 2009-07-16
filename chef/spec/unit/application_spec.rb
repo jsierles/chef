@@ -142,12 +142,18 @@ end
 
 describe Chef::Application, "class method: fatal!" do
   before do
+    STDERR.stub!(:puts).with("FATAL: blah").and_return(true)
     Chef::Log.stub!(:fatal).with("blah").and_return(true)
     Process.stub!(:exit).and_return(true)
   end
   
-  it "should log an error message" do
+  it "should log an error message to the logger" do
     Chef::Log.should_receive(:fatal).with("blah").and_return(true)
+    Chef::Application.fatal! "blah"
+  end
+
+  it "should log an error message on STDERR" do
+    STDERR.should_receive(:puts).with("FATAL: blah").and_return(true)
     Chef::Application.fatal! "blah"
   end
   

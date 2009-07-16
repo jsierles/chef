@@ -35,7 +35,7 @@ class Chef
     include Chef::Mixin::GenerateURL
     include Chef::Mixin::Checksum
     
-    attr_accessor :node, :registration, :safe_name, :json_attribs, :validation_token, :node_name, :ohai, :ohai_has_run
+    attr_accessor :node, :registration, :safe_name, :json_attribs, :validation_token, :node_name, :ohai
     
     # Creates a new Chef::Client.
     def initialize()
@@ -48,7 +48,6 @@ class Chef
       @node_exists = true 
       Ohai::Log.logger = Chef::Log.logger
       @ohai = Ohai::System.new
-      @ohai_has_run = false
       @rest = Chef::REST.new(Chef::Config[:registration_url])
     end
     
@@ -70,9 +69,11 @@ class Chef
       start_time = Time.now
       Chef::Log.info("Starting Chef Run")
       
+      determine_node_name
       register
       authenticate
       build_node(@node_name)
+      save_node
       sync_library_files
       sync_attribute_files
       sync_definitions
@@ -97,8 +98,9 @@ class Chef
       start_time = Time.now
       Chef::Log.info("Starting Chef Solo Run")
       
-      build_node(@node_name, solo = true)
-      converge(solo = true)
+      determine_node_name
+      build_node(@node_name, true)
+      converge(true)
       
       end_time = Time.now
       Chef::Log.info("Chef Run complete in #{end_time - start_time} seconds")
@@ -106,8 +108,11 @@ class Chef
     end
 
     def run_ohai
-      @ohai.all_plugins unless @ohai_has_run
-      @ohai_has_run = true
+      if @ohai.keys
+        @ohai.refresh_plugins
+      else
+        @ohai.all_plugins
+      end
     end
 
     def determine_node_name
@@ -129,7 +134,6 @@ class Chef
     # node<Chef::Node>:: Returns the created node object, also stored in @node
     def build_node(node_name=nil, solo=false)
       node_name ||= determine_node_name
-
       raise RuntimeError, "Unable to determine node name from ohai" unless node_name
       Chef::Log.debug("Building node object for #{@safe_name}")
       unless solo
@@ -182,22 +186,27 @@ class Chef
     # === Returns
     # true:: Always returns true
     def register
-      determine_node_name
+      determine_node_name unless @node_name
       Chef::Log.debug("Registering #{@safe_name} for an openid") 
-      @registration = nil
-      begin
-        @registration = @rest.get_rest("registrations/#{@safe_name}")
-      rescue Net::HTTPServerException => e
-        unless e.message =~ /^404/
-          raise e
-        end
-      end
       
-      if @registration
-        @secret = Chef::FileCache.load(File.join("registration", @safe_name))
-      else
-        create_registration
+      begin
+        if @rest.get_rest("registrations/#{@safe_name}")
+          @secret = Chef::FileCache.load(File.join("registration", @safe_name))
+        end
+      rescue Net::HTTPServerException => e
+        case e.message
+        when /^404/
+          create_registration
+        else
+          raise
+        end
+      rescue Chef::Exceptions::FileNotFound
+        Chef::Application.fatal! "A remote registration already exists for #{@safe_name}, however the local shared secret does not exist." +
+          " To remedy this, you could delete the registration via webUI/REST, change the node_name option in config.rb" +
+          " (or use the -N/--node-name option to the CLI) or" +
+          " copy the old shared secret to #{File.join(Chef::Config[:file_cache_path], 'registration', @safe_name)}", 3
       end
+
       true
     end
     
@@ -218,7 +227,7 @@ class Chef
     # === Returns
     # true:: Always returns true
     def authenticate
-      determine_node_name
+      determine_node_name unless @node_name
       Chef::Log.debug("Authenticating #{@safe_name} via openid") 
       response = @rest.post_rest('openid/consumer/start', { 
         "openid_identifier" => "#{Chef::Config[:openid_url]}/openid/server/node/#{@safe_name}",
