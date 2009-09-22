@@ -16,11 +16,11 @@ spec = Gem::Specification.new do |s|
   %w{stomp stompserver ferret
     merb-core merb-haml merb-assets
     merb-helpers mongrel haml
-    ruby-openid json syntax}.each { |gem| s.add_dependency gem }
+    ruby-openid json coderay}.each { |gem| s.add_dependency gem }
   
   s.bindir       = "bin"
   s.executables  = %w( chef-server chef-indexer )  
-  s.files = %w(LICENSE README.rdoc) + Dir.glob("{app,bin,config,lib,public}/**/*")
+  s.files = %w(LICENSE README.rdoc config.ru) + Dir.glob("{app,bin,config,lib,public}/**/*")
 end
 
 Rake::GemPackageTask.new(spec) do |pkg|

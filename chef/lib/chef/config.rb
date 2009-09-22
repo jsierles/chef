@@ -41,13 +41,37 @@ class Chef
       newkey
     end
 
+
+    # Override the config dispatch to set the value of multiple server options simultaneously
+    # 
+    # === Parameters
+    # url<String>:: String to be set for all of the chef-server-api URL's
+    #
+    config_attr_writer :chef_server_url do |url|
+      configure do |c|
+        [ :registration_url,
+          :openid_url,
+          :template_url,
+          :remotefile_url,
+          :search_url,
+          :role_url ].each do |u| 
+            c[u] = url
+        end
+      end
+      url
+    end
+    
     # Override the config dispatch to set the value of log_location configuration option
     #
     # === Parameters
     # location<IO||String>:: Logging location as either an IO stream or string representing log file path
     #
-    def self.log_location=(location)
-      configure { |c| c[:log_location] = (location.respond_to?(:sync=) ? location : File.new(location, "w+")) }
+    config_attr_writer :log_location do |location|
+      if location.respond_to? :sync=
+        location
+      elsif location.respond_to? :to_str
+        File.new(location.to_str, "a")
+      end
     end
 
     # Override the config dispatch to set the value of authorized_openid_providers when openid_providers (deprecated) is used
@@ -55,12 +79,14 @@ class Chef
     # === Parameters
     # providers<Array>:: An array of openid providers that are authorized to login to the chef server
     #
-    def self.openid_providers=(providers)
-      configure { |c| c[:authorized_openid_provders] = providers }
+    config_attr_writer :openid_providers do |providers|
+      configure { |c| c[:authorized_openid_providers] = providers }
+      providers
     end
 
     authorized_openid_identifiers nil
     authorized_openid_providers nil
+    chef_server_url nil
     cookbook_path [ "/var/chef/site-cookbooks", "/var/chef/cookbooks" ]
     couchdb_database "chef"
     couchdb_url "http://localhost:5984"

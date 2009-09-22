@@ -63,13 +63,11 @@ class Chef
     # true:: Always returns true
     def load_attributes()
       recipes, default_attrs, override_attrs = expand_node
-      # Merge the default attrs, using the nodes current as the winner 
-      @node.attribute = Chef::Mixin::DeepMerge.merge(default_attrs, @node.attribute)
+
       @cookbook_loader.each do |cookbook|
         cookbook.load_attributes(@node)
       end
-      # Merge the override attrs, using the nodes current as the winner
-      @node.attribute = Chef::Mixin::DeepMerge.merge(@node.attribute, override_attrs)
+
       true
     end
     
@@ -130,9 +128,9 @@ class Chef
     end
 
     def expand_node
-      if @recipes.empty? && @override_attributes.empty? && @default_attributes.empty?
-        @recipes, @default_attributes, @override_attributes = @node.run_list.expand
-      end
+      @recipes, @default_attributes, @override_attributes = @node.run_list.expand
+      @node.default = @default_attributes
+      @node.override = @override_attributes
       return @recipes, @default_attributes, @override_attributes
     end
     

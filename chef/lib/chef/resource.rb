@@ -192,6 +192,14 @@ class Chef
       results.to_json(*a)
     end
     
+    def to_hash
+      instance_vars = Hash.new
+      self.instance_variables.each do |iv|
+        instance_vars[iv.sub(/^@/,'').to_sym] = self.instance_variable_get(iv) unless iv == "@collection"
+      end
+      instance_vars
+    end
+    
     def self.json_create(o)
       resource = self.new(o["instance_vars"]["@name"])
       o["instance_vars"].each do |k,v|
@@ -219,8 +227,7 @@ class Chef
     end
     
     def run_action(action)
-      provider_class = Chef::Platform.find_provider_for_node(@node, self)
-      provider = provider_class.new(@node, self)
+      provider = Chef::Platform.provider_for_node(@node, self)
       provider.load_current_resource
       provider.send("action_#{action}")
     end

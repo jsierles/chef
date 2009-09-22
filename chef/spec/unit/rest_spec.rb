@@ -100,6 +100,8 @@ describe Chef::REST, "run_request method" do
     @url_mock.stub!(:path).and_return("/")
     @url_mock.stub!(:query).and_return("foo=bar")
     @url_mock.stub!(:scheme).and_return("https")
+    @url_mock.stub!(:user).and_return(nil)
+    @url_mock.stub!(:password).and_return(nil)
     @url_mock.stub!(:to_s).and_return("https://one:80/?foo=bar")
     @http_response_mock = mock("Net::HTTPSuccess", :null_object => true)
     @http_response_mock.stub!(:kind_of?).with(Net::HTTPSuccess).and_return(true)
@@ -128,6 +130,14 @@ describe Chef::REST, "run_request method" do
   
   it "should raise an exception if the redirect limit is 0" do
     lambda { @r.run_request(:GET, "/", false, 0)}.should raise_error(ArgumentError)
+  end
+
+  it "should not fail if URI contains %d characters" do
+    @http_response_mock.stub!(:read_body).and_yield("ninja")
+    @url_mock.stub!(:path).and_return("/myfile?Expires=1247484042&Signature=hpK%2BbHchAmUCErdz1yCBPazzGRQ%3D")
+    @http_mock.stub!(:request).and_yield(@http_response_mock).and_return(@http_response_mock)
+    @http_response_mock.should_receive(:read_body).and_return(true)
+    do_run_request(:GET, false, 10, true)
   end
   
   it "should use SSL if the url starts with https" do
@@ -232,6 +242,21 @@ describe Chef::REST, "run_request method" do
     do_run_request(:DELETE)
   end
   
+  describe "with HTTP Basic Authentication info in the URL" do
+    before(:each) do
+      @url_mock.stub!(:user).and_return('frodo')
+      @url_mock.stub!(:password).and_return('odorf')
+    end
+
+    %w(Get Post Put Delete).each do |verb|
+      it "should authenticate HTTP #{verb.upcase} requests" do
+        Net::HTTP::const_get(verb).stub!(:new).and_return(@request_mock)
+        @request_mock.should_receive(:basic_auth).with('frodo', 'odorf')
+        do_run_request(verb.upcase.to_sym)
+      end
+    end
+  end
+
   it "should raise an error if the method is not GET/PUT/POST/DELETE" do
     lambda { do_run_request(:MONKEY) }.should raise_error(ArgumentError)
   end

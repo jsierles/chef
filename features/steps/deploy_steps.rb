@@ -1,0 +1,53 @@
+Given /^I have a clone of typo in the data\/tmp dir$/ do
+  cmd = "git clone #{datadir}/typo.bundle #{tmpdir}/gitrepo/typo"
+  `#{cmd}`
+end
+
+Then /^I should hear about it$/ do
+  puts "==deploy:"
+  puts `ls #{tmpdir}/deploy/`
+  puts "==Releases:"
+  puts `ls #{tmpdir}/deploy/releases/`
+  puts "==Releases/*/"
+  puts `ls #{tmpdir}/deploy/releases/*/`
+  puts "==Releases/*/db"
+  puts `ls #{tmpdir}/deploy/releases/*/db/`
+  puts "==Releases/*/config/"
+  puts `ls #{tmpdir}/deploy/releases/*/config/`
+  puts "==current:"
+  puts `ls #{tmpdir}/deploy/current/`
+  puts "==current/db:"
+  puts `ls #{tmpdir}/deploy/current/db/`
+  puts "==current/deploy:"
+  puts `ls #{tmpdir}/deploy/current/deploy/`
+  puts "==current/app:"
+  puts `ls #{tmpdir}/deploy/current/app/`
+  puts "==current/config:"
+  puts `ls #{tmpdir}/deploy/current/config/`
+  puts "==shared/config/app_config.yml"
+  puts `ls #{tmpdir}/deploy/shared/config/`
+end
+
+Then /^there should be '(.*)' releases?$/ do |n|
+  numnums = {"one" => 1, "two" => 2, "three" => 3}
+  n = numnums.has_key?(n) ? numnums[n] : n.to_i
+  @releases = Dir.glob(tmpdir + "/deploy/releases/*")
+  @releases.size.should eql(n)
+end
+
+Then /^a callback named <callback_file> should exist$/ do |callback_files|
+  callback_files.raw.each do |file|
+    want_file = "deploy/current/deploy/#{file.first}"
+    Then "a file named '#{want_file}' should exist"
+  end
+end
+
+Then /^the callback named <callback> should have run$/ do |callback_files|
+  callback_files.raw.each do |file|
+    hook_name = file.first.gsub(/\.rb$/, "")
+    evidence_file = "deploy/current/app/" + hook_name 
+    expected_contents = {"hook_name" => hook_name, "env" => "production"}
+    actual_contents = JSON.parse(IO.read(File.join(tmpdir, evidence_file)))
+    expected_contents.should == actual_contents
+  end
+end

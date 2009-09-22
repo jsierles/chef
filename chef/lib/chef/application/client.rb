@@ -95,12 +95,26 @@ class Chef::Application::Client < Chef::Application
     :description => "The splay time for running at intervals, in seconds",
     :proc => lambda { |s| s.to_i }
 
+  option :chef_server_url,
+    :short => "-S CHEFSERVERURL",
+    :long => "--server CHEFSERVERURL",
+    :description => "The chef server URL",
+    :proc => nil
+
   option :validation_token,
     :short => "-t TOKEN",
     :long => "--token TOKEN",
     :description => "Set the openid validation token",
     :proc => nil
   
+  option :version,
+    :short        => "-v",
+    :long         => "--version",
+    :description  => "Show chef version",
+    :boolean      => true,
+    :proc         => lambda {|v| puts "Chef: #{::Chef::VERSION}"},
+    :exit         => 0
+
   def initialize
     super
 
@@ -112,15 +126,13 @@ class Chef::Application::Client < Chef::Application
   # Re-open the JSON attributes and load them into the node
   def reconfigure 
     super 
+
+    Chef::Config[:chef_server_url] = config[:chef_server_url] if config.has_key? :chef_server_url
    
     if Chef::Config[:daemonize]
       Chef::Config[:interval] ||= 1800
     end
 
-    if Chef::Config[:interval]
-      Chef::Config[:delay] = Chef::Config[:interval] + (Chef::Config[:splay] ? rand(Chef::Config[:splay]) : 0)
-    end
-       
     if Chef::Config[:json_attribs]
       begin
           json_io = open(Chef::Config[:json_attribs])
@@ -155,17 +167,27 @@ class Chef::Application::Client < Chef::Application
   
   # Run the chef client, optionally daemonizing or looping at intervals.
   def run_application
+    if Chef::Config[:version]
+      puts "Chef version: #{::Chef::VERSION}"
+    end
+
     if Chef::Config[:daemonize]
       Chef::Daemon.daemonize("chef-client")
     end
     
     loop do
       begin
+        if Chef::Config[:splay]
+          splay = rand Chef::Config[:splay]
+          Chef::Log.debug("Splay sleep #{splay} seconds")
+          sleep splay
+        end
+
         @chef_client.run
         
         if Chef::Config[:interval]
-          Chef::Log.debug("Sleeping for #{Chef::Config[:delay]} seconds")
-          sleep Chef::Config[:delay]
+          Chef::Log.debug("Sleeping for #{Chef::Config[:interval]} seconds")
+          sleep Chef::Config[:interval]
         else
           Chef::Application.exit! "Exiting", 0
         end
@@ -175,8 +197,8 @@ class Chef::Application::Client < Chef::Application
         if Chef::Config[:interval]
           Chef::Log.error("#{e.class}")
           Chef::Log.fatal("#{e}\n#{e.backtrace.join("\n")}")
-          Chef::Log.fatal("Sleeping for #{Chef::Config[:delay]} seconds before trying again")
-          sleep Chef::Config[:delay]
+          Chef::Log.fatal("Sleeping for #{Chef::Config[:interval]} seconds before trying again")
+          sleep Chef::Config[:interval]
           retry
         else
           raise

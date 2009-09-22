@@ -9,7 +9,7 @@ rescue LoadError
 end
 
 GEM_NAME = "chef-server-slice"
-CHEF_SERVER_VERSION="0.7.5"
+CHEF_SERVER_VERSION="0.7.11"
 AUTHOR = "Opscode"
 EMAIL = "chef@opscode.com"
 HOMEPAGE = "http://wiki.opscode.com/display/chef"
@@ -30,8 +30,8 @@ spec = Gem::Specification.new do |s|
 
   %w{stomp stompserver ferret
     merb-core merb-haml merb-assets
-    merb-helpers mongrel haml
-    ruby-openid json syntax}.each { |gem| s.add_dependency gem }
+    merb-helpers merb-slices mongrel haml
+    ruby-openid json coderay}.each { |gem| s.add_dependency gem }
 
   s.require_path = 'lib'
   s.files = %w(LICENSE README.rdoc) + Dir.glob("{app,config,lib,public}/**/*")

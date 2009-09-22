@@ -93,7 +93,7 @@ class Chef
         :bash => Chef::Provider::Script,
         :csh => Chef::Provider::Script,
         :user => Chef::Provider::User::Useradd,
-        :group => Chef::Provider::Group::Groupadd,
+        :group => Chef::Provider::Group::Gpasswd,
         :http_request => Chef::Provider::HttpRequest,
         :route => Chef::Provider::Route,
         :ifconfig => Chef::Provider::Ifconfig,
@@ -175,6 +175,10 @@ class Chef
         return platform, version
       end
       
+      def provider_for_node(node, resource_type)
+        find_provider_for_node(node, resource_type).new(node, resource_type)
+      end
+
       def find_provider_for_node(node, resource_type)
         platform, version = find_platform_and_version(node)        
         provider = find_provider(platform, version, resource_type)

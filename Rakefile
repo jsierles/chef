@@ -145,8 +145,15 @@ namespace :features do
       end
     end
   end
+
   Cucumber::Rake::Task.new(:client) do |t|
     t.profile = "client"
+  end
+
+  namespace :client do
+    Cucumber::Rake::Task.new(:roles) do |t|
+      t.profile = "client_roles"
+    end
   end
 
   Cucumber::Rake::Task.new(:search) do |t|
@@ -164,8 +171,16 @@ namespace :features do
   end
 
   namespace :provider do
+    Cucumber::Rake::Task.new(:template) do |t|
+      t.profile = "provider_template"
+    end
+
     Cucumber::Rake::Task.new(:remote_file) do |t|
       t.profile = "provider_remote_file"
+    end
+    
+    Cucumber::Rake::Task.new(:git) do |t|
+      t.profile = "provider_git"
     end
     
     namespace :package do
