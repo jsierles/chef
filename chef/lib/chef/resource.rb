@@ -1,5 +1,6 @@
 #
 # Author:: Adam Jacob (<adam@opscode.com>)
+# Author:: Christopher Walters (<cw@opscode.com>)
 # Copyright:: Copyright (c) 2008 Opscode, Inc.
 # License:: Apache License, Version 2.0
 #
@@ -19,6 +20,7 @@
 require 'chef/mixin/params_validate'
 require 'chef/mixin/check_helper'
 require 'chef/mixin/language'
+require 'chef/mixin/convert_to_class_name'
 require 'chef/resource_collection'
 require 'chef/node'
 
@@ -28,6 +30,7 @@ class Chef
     include Chef::Mixin::CheckHelper
     include Chef::Mixin::ParamsValidate
     include Chef::Mixin::Language
+    include Chef::Mixin::ConvertToClassName
     
     attr_accessor :actions, :params, :provider, :updated, :allowed_actions, :collection, :cookbook_name, :recipe_name
     attr_reader :resource_name, :source_line, :node
@@ -83,9 +86,22 @@ class Chef
     end
     
     def provider(arg=nil)
+      klass = if arg.kind_of?(String) || arg.kind_of?(Symbol)
+                begin
+                  Chef::Provider.const_get(convert_to_class_name(arg.to_s))
+                rescue NameError => e
+                  if e.to_s =~ /Chef::Provider/
+                    raise ArgumentError, "No provider found to match '#{arg}'"
+                  else
+                    raise e
+                  end
+                end
+              else
+                arg
+              end
       set_or_return(
         :provider,
-        arg,
+        klass,
         :kind_of => [ Class ]
       )
     end
@@ -200,14 +216,6 @@ class Chef
       instance_vars
     end
     
-    def self.json_create(o)
-      resource = self.new(o["instance_vars"]["@name"])
-      o["instance_vars"].each do |k,v|
-        resource.instance_variable_set(k.to_sym, v)
-      end
-      resource
-    end
-    
     def only_if(arg=nil, &blk)
       if Kernel.block_given?
         @only_if = blk
@@ -230,6 +238,74 @@ class Chef
       provider = Chef::Platform.provider_for_node(@node, self)
       provider.load_current_resource
       provider.send("action_#{action}")
+    end
+    
+    class << self
+      def json_create(o)
+        resource = self.new(o["instance_vars"]["@name"])
+        o["instance_vars"].each do |k,v|
+          resource.instance_variable_set(k.to_sym, v)
+        end
+        resource
+      end
+      
+      include Chef::Mixin::ConvertToClassName
+      
+      def attribute(attr_name, validation_opts={})
+        define_method(attr_name.to_sym) do |arg|
+          set_or_return(attr_name.to_sym, arg, validation_opts)
+        end
+      end
+      
+      def build_from_file(cookbook_name, filename)
+        rname = filename_to_qualified_string(cookbook_name, filename)
+          
+        new_resource_class = Class.new self do |cls|
+          
+          # default initialize method that ensures that when initialize is finally
+          # wrapped (see below), super is called in the event that the resource
+          # definer does not implement initialize
+          def initialize(name, collection=nil, node=nil)
+            super(name, collection, node)
+          end
+          
+          @actions_to_create = []
+          
+          class << cls
+            include Chef::Mixin::FromFile
+            
+            def actions_to_create
+              @actions_to_create
+            end
+            
+            define_method(:actions) do |*action_names|
+              actions_to_create.push(*action_names)
+            end
+          end
+          
+          # load resource definition from file
+          cls.class_from_file(filename)
+          
+          # create a new constructor that wraps the old one and adds the actions
+          # specified in the DSL
+          old_init = instance_method(:initialize)
+
+          define_method(:initialize) do |name, *optional_args|
+            collection = optional_args.shift
+            node = optional_args.shift
+            @resource_name = rname.to_sym
+            old_init.bind(self).call(name, collection, node)
+            allowed_actions.push(self.class.actions_to_create).flatten!
+          end
+        end
+        
+        # register new class as a Chef::Resource
+        class_name = convert_to_class_name(rname)
+        Chef::Resource.const_set(class_name, new_resource_class)
+        Chef::Log.debug("Loaded contents of #{filename} into a resource named #{rname} defined in Chef::Resource::#{class_name}")
+        
+        new_resource_class
+      end
     end
     
     private
