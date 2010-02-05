@@ -136,6 +136,48 @@ describe Chef::Node do
       seen_attributes["canada"].should == "is a nice place"
     end
   end
+  
+  describe "consuming json" do
+    it "should add any json attributes to the node" do
+      @node.consume_attributes "one" => "two", "three" => "four"
+      @node.one.should eql("two")
+      @node.three.should eql("four")
+    end
+
+    it "should allow you to set recipes from the json attributes" do
+      @node.consume_attributes "recipes" => [ "one", "two", "three" ]
+      @node.recipes.should == [ "one", "two", "three" ]
+    end
+
+    it "should overwrite the run list if you set recipes twice" do
+      @node.consume_attributes "recipes" => [ "one", "two" ]
+      @node.consume_attributes "recipes" => [ "three" ]
+      @node.recipes.should == [ "three" ]
+    end
+
+    it "should allow you to set a run_list from the json attributes" do
+      @node.consume_attributes "run_list" => [ "role[base]", "recipe[chef::server]" ]
+      @node.run_list.should == [ "role[base]", "recipe[chef::server]" ]
+    end
+
+    it "should not add duplicate recipes from the json attributes" do
+      @node.recipes << "one"
+      @node.consume_attributes "recipes" => [ "one", "two", "three" ]
+      @node.recipes.should  == [ "one", "two", "three" ]
+    end
+
+    it "should set the tags attribute to an empty array if it is not already defined" do
+      @node.consume_attributes "{}"
+      @node.tags.should eql([])
+    end
+
+    it "should not set the tags attribute to an empty array if it is already defined" do
+      @node[:tags] = [ "radiohead" ]
+      @node.consume_attributes "{}"
+      @node.tags.should eql([ "radiohead" ])
+    end
+    
+  end
 
   describe "recipes" do
     it "should have a RunList of recipes that should be applied" do
@@ -240,6 +282,27 @@ describe Chef::Node do
     end
   end
 
+  describe "to_hash" do
+    it "should serialize itself as a hash" do
+      @node.default_attrs = { "one" => { "two" => "three", "four" => "five", "eight" => "nine" } }
+      @node.override_attrs = { "one" => { "two" => "three", "four" => "six" } }
+      @node.set["one"]["two"] = "seven"
+      @node.run_list << "role[marxist]"
+      @node.run_list << "role[leninist]"
+      @node.run_list << "recipe[stalinist]"
+      h = @node.to_hash
+      h["one"]["two"].should == "seven"
+      h["one"]["four"].should == "six"
+      h["one"]["eight"].should == "nine"
+      h["recipe"].should be_include("stalinist")
+      h["role"].should be_include("marxist")
+      h["role"].should be_include("leninist")
+      h["run_list"].should be_include("role[marxist]")
+      h["run_list"].should be_include("role[leninist]")
+      h["run_list"].should be_include("recipe[stalinist]")
+    end
+  end
+
   describe "json" do
     it "should serialize itself as json" do
       @node.find_file("test.example.com")
@@ -247,6 +310,8 @@ describe Chef::Node do
       json.should =~ /json_class/
       json.should =~ /name/
       json.should =~ /attributes/
+      json.should =~ /overrides/
+      json.should =~ /defaults/
       json.should =~ /run_list/
     end
     
@@ -263,17 +328,6 @@ describe Chef::Node do
     end
   end
 
-  describe "to_index" do
-    before(:each) do
-      @node.foo("bar")
-    end
-    
-    it "should return a hash with :index attributes" do
-      @node.name("airplane")
-      @node.to_index.should == { "foo" => "bar", "index_name" => "node", "id" => "node_airplane", "name" => "airplane" }
-    end
-  end
-
   describe "to_s" do
     it "should turn into a string like node[name]" do
       @node.name("airplane")
@@ -281,7 +335,71 @@ describe Chef::Node do
     end
   end
 
-  describe "couchdb" do
+  describe "api model" do
+    before(:each) do 
+      @rest = mock("Chef::REST")
+      Chef::REST.stub!(:new).and_return(@rest)
+      @query = mock("Chef::Search::Query")
+      Chef::Search::Query.stub!(:new).and_return(@query)
+    end
+
+    describe "list" do
+      describe "inflated" do
+        it "should return a hash of node names and objects" do
+          n1 = mock("Chef::Node", :name => "one")
+          @query.should_receive(:search).with(:node).and_yield(n1)
+          r = Chef::Node.list(true)
+          r["one"].should == n1
+        end
+      end
+
+      it "should return a hash of node names and urls" do
+        @rest.should_receive(:get_rest).and_return({ "one" => "http://foo" })
+        r = Chef::Node.list
+        r["one"].should == "http://foo"
+      end
+    end
+
+    describe "load" do
+      it "should load a node by name" do
+        @rest.should_receive(:get_rest).with("nodes/monkey").and_return("foo")
+        Chef::Node.load("monkey").should == "foo"
+      end
+    end
+
+    describe "destroy" do
+      it "should destroy a node" do
+        @rest.should_receive(:delete_rest).with("nodes/monkey").and_return("foo")
+        @node.name("monkey")
+        @node.destroy
+      end
+    end
+
+    describe "save" do
+      it "should update a node if it already exists" do
+        @node.name("monkey")
+        @rest.should_receive(:put_rest).with("nodes/monkey", @node).and_return("foo")
+        @node.save
+      end
+
+      it "should not try and create if it can update" do
+        @node.name("monkey")
+        @rest.should_receive(:put_rest).with("nodes/monkey", @node).and_return("foo")
+        @rest.should_not_receive(:post_rest)
+        @node.save
+      end
+
+      it "should create if it cannot update" do
+        @node.name("monkey")
+        exception = mock("404 error", :code => "404")
+        @rest.should_receive(:put_rest).and_raise(Net::HTTPServerException.new("foo", exception))
+        @rest.should_receive(:post_rest).with("nodes", @node)
+        @node.save
+      end
+    end
+  end
+
+  describe "couchdb model" do
     before(:each) do
       @mock_couch = mock("Chef::CouchDB")
     end
@@ -295,15 +413,15 @@ describe Chef::Node do
       end
 
       it "should retrieve a list of nodes from CouchDB" do
-        Chef::Node.list.should eql(["avenue"])
+        Chef::Node.cdb_list.should eql(["avenue"])
       end
 
       it "should return just the ids if inflate is false" do
-        Chef::Node.list(false).should eql(["avenue"])
+        Chef::Node.cdb_list(false).should eql(["avenue"])
       end
 
       it "should return the full objects if inflate is true" do
-        Chef::Node.list(true).should eql(["a"])
+        Chef::Node.cdb_list(true).should eql(["a"])
       end
     end
 
@@ -311,7 +429,7 @@ describe Chef::Node do
       it "should load a node from couchdb by name" do
         @mock_couch.should_receive(:load).with("node", "coffee").and_return(true)
         Chef::CouchDB.stub!(:new).and_return(@mock_couch)
-        Chef::Node.load("coffee")
+        Chef::Node.cdb_load("coffee")
       end
     end
 
@@ -322,8 +440,7 @@ describe Chef::Node do
         node = Chef::Node.new
         node.name "bob"
         node.couchdb_rev = 1
-        Chef::Queue.should_receive(:send_msg).with(:queue, :remove, node)
-        node.destroy
+        node.cdb_destroy
       end
     end
 
@@ -331,20 +448,18 @@ describe Chef::Node do
       before(:each) do
         @mock_couch.stub!(:store).and_return({ "rev" => 33 })
         Chef::CouchDB.stub!(:new).and_return(@mock_couch)
-        Chef::Queue.stub!(:send_msg).and_return(true)
         @node = Chef::Node.new
         @node.name "bob"
         @node.couchdb_rev = 1
       end
 
       it "should save the node to couchdb" do
-        Chef::Queue.should_receive(:send_msg).with(:queue, :index, @node)
         @mock_couch.should_receive(:store).with("node", "bob", @node).and_return({ "rev" => 33 })
-        @node.save
+        @node.cdb_save
       end
 
       it "should store the new couchdb_rev" do
-        @node.save
+        @node.cdb_save
         @node.couchdb_rev.should eql(33)
       end
     end

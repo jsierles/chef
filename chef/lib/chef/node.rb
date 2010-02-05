@@ -20,24 +20,29 @@ require 'chef/config'
 require 'chef/mixin/check_helper'
 require 'chef/mixin/params_validate'
 require 'chef/mixin/from_file'
+require 'chef/mixin/language_include_attribute'
 require 'chef/couchdb'
-require 'chef/queue'
+require 'chef/rest'
 require 'chef/run_list'
 require 'chef/node/attribute'
+require 'chef/index_queue'
 require 'extlib'
 require 'json'
 
 class Chef
   class Node
     
-    attr_accessor :attribute, :recipe_list, :couchdb_rev, :run_state, :run_list, :override, :default
+    attr_accessor :attribute, :recipe_list, :couchdb, :couchdb_rev, :couchdb_id, :run_state, :run_list, :override_attrs, :default_attrs, :cookbook_loader
+    attr_reader :node
     
     include Chef::Mixin::CheckHelper
     include Chef::Mixin::FromFile
     include Chef::Mixin::ParamsValidate
+    include Chef::Mixin::LanguageIncludeAttribute
+    include Chef::IndexQueue::Indexable
     
     DESIGN_DOCUMENT = {
-      "version" => 8,
+      "version" => 9,
       "language" => "javascript",
       "views" => {
         "all" => {
@@ -120,19 +125,23 @@ class Chef
     }
     
     # Create a new Chef::Node object.
-    def initialize()
+    def initialize(couchdb=nil)
       @name = nil
+      @node = self
 
       @attribute = Mash.new
-      @override = Mash.new
-      @default = Mash.new
+      @override_attrs = Mash.new
+      @default_attrs = Mash.new
       @run_list = Chef::RunList.new 
 
       @couchdb_rev = nil
-      @couchdb = Chef::CouchDB.new
+      @couchdb_id = nil
+      @couchdb = couchdb ? couchdb : Chef::CouchDB.new
+
       @run_state = {
         :template_cache => Hash.new,
-        :seen_recipes => Hash.new
+        :seen_recipes => Hash.new,
+        :seen_attributes => Hash.new
       }
     end
     
@@ -179,20 +188,24 @@ class Chef
     
     # Return an attribute of this node.  Returns nil if the attribute is not found.
     def [](attrib)
-      attrs = Chef::Node::Attribute.new(@attribute, @default, @override)
+      attrs = Chef::Node::Attribute.new(@attribute, @default_attrs, @override_attrs)
       attrs[attrib] 
     end
     
     # Set an attribute of this node
     def []=(attrib, value)
-      attrs = Chef::Node::Attribute.new(@attribute, @default, @override)
+      attrs = Chef::Node::Attribute.new(@attribute, @default_attrs, @override_attrs)
       attrs[attrib] = value
+    end
+    
+    def store(attrib, value)
+      self[attrib] = value
     end
 
     # Set an attribute of this node, but auto-vivifiy any Mashes that might
     # be missing
     def set
-      attrs = Chef::Node::Attribute.new(@attribute, @default, @override)
+      attrs = Chef::Node::Attribute.new(@attribute, @default_attrs, @override_attrs)
       attrs.auto_vivifiy_on_read = true
       attrs
     end
@@ -200,7 +213,7 @@ class Chef
     # Set an attribute of this node, auto-vivifiying any mashes that are
     # missing, but if the final value already exists, don't set it
     def set_unless
-      attrs = Chef::Node::Attribute.new(@attribute, @default, @override)
+      attrs = Chef::Node::Attribute.new(@attribute, @default_attrs, @override_attrs)
       attrs.auto_vivifiy_on_read = true
       attrs.set_unless_value_present = true
       attrs
@@ -214,19 +227,19 @@ class Chef
     # Only works on the top level. Preferred way is to use the normal [] style
     # lookup and call attribute?()
     def attribute?(attrib)
-      attrs = Chef::Node::Attribute.new(@attribute, @default, @override)
+      attrs = Chef::Node::Attribute.new(@attribute, @default_attrs, @override_attrs)
       attrs.attribute?(attrib)
     end
   
     # Yield each key of the top level to the block. 
     def each(&block)
-      attrs = Chef::Node::Attribute.new(@attribute, @default, @override)
+      attrs = Chef::Node::Attribute.new(@attribute, @default_attrs, @override_attrs)
       attrs.each(&block)
     end
     
     # Iterates over each attribute, passing the attribute and value to the block.
     def each_attribute(&block)
-      attrs = Chef::Node::Attribute.new(@attribute, @default, @override)
+      attrs = Chef::Node::Attribute.new(@attribute, @default_attrs, @override_attrs)
       attrs.each_attribute(&block)
     end
 
@@ -234,7 +247,7 @@ class Chef
     # to set the attribute values.  Otherwise, we'll wind up just returning the attributes
     # value.
     def method_missing(symbol, *args)
-      attrs = Chef::Node::Attribute.new(@attribute, @default, @override)
+      attrs = Chef::Node::Attribute.new(@attribute, @default_attrs, @override_attrs)
       attrs.send(symbol, *args)
     end
     
@@ -251,16 +264,6 @@ class Chef
       end
     end
     
-    # Returns an Array of recipes.  If you call it with arguments, they will become the new
-    # list of recipes.
-    def recipes(*args)
-      if args.length > 0
-        @run_list.reset(args)
-      else
-        @run_list
-      end
-    end
-
     # Returns true if this Node expects a given role, false if not.
     def role?(role_name)
       @run_list.include?("role[#{role_name}]")
@@ -276,56 +279,40 @@ class Chef
       end
     end
 
+    alias_method :recipes, :run_list
+
     # Returns true if this Node expects a given role, false if not.
     def run_list?(item)
       @run_list.detect { |r| r == item } ? true : false
     end
     
-    # Turns the node into an object that we can index.  I apologize up front for the
-    # super confusion that is the recursive index_flatten hash, which comes up next.
-    # Faith, young one, faith.
-    #
-    # === Returns
-    # index_hash<Hash>:: A flattened hash of all the nodes attributes, suitable for indexing.
-    def to_index
-      index_hash = {
-        "index_name" => "node",
-        "id" => "node_#{@name}",
-        "name" => @name,
-      }
-      @attribute.each do |key, value|
-        if value.kind_of?(Hash) || value.kind_of?(Mash)
-          index_flatten_hash(key, value).each do |to_index|
-            to_index.each do |nk, nv|
-              index_hash[nk] = nv
-            end
-          end
+    def consume_attributes(attrs)
+      attrs ||= {}
+      Chef::Log.debug("Adding JSON Attributes")
+      attrs.each do |key, value|
+        if ["recipes", "run_list"].include?(key)
+          run_list(value)
         else
-          index_hash[key] = value
+          Chef::Log.debug("JSON Attribute: #{key} - #{value.inspect}")
+          store(key, value)
         end
       end
-      index_hash["recipe"] = @run_list.recipes if @run_list.recipes.length > 0
-      index_hash["roles"] = @run_list.roles if @run_list.roles.length > 0
-      index_hash["run_list"] = @run_list.run_list if @run_list.run_list.length > 0
-      index_hash
+      self[:tags] = Array.new unless attribute?(:tags)
+      
     end
     
-    # Ah, song of my heart, index_flatten_hash.  This method flattens a hash in preparation
-    # for indexing, by appending the name of it's parent to a current key with an _.  Hence,
-    # node[:bar][:baz] = 'monkey' becomes bar_baz:monkey.
-    #
-    # === Returns
-    # results<Array>:: An array of hashes with one element.
-    def index_flatten_hash(parent_name, hash)
-      results = Array.new
-      hash.each do |k, v|
-        if v.kind_of?(Hash) || v.kind_of?(Mash)
-          results << index_flatten_hash("#{parent_name}_#{k}", v)
-        else
-          results << { "#{parent_name}_#{k}", v }
-        end
+    # Transform the node to a Hash
+    def to_hash
+      index_hash = Hash.new
+      self.each do |k, v|
+        index_hash[k] = v
       end
-      results.flatten
+      index_hash["chef_type"] = "node"
+      index_hash["name"] = @name
+      index_hash["recipe"] = @run_list.recipes if @run_list.recipes.length > 0
+      index_hash["role"] = @run_list.roles if @run_list.roles.length > 0
+      index_hash["run_list"] = @run_list.run_list if @run_list.run_list.length > 0
+      index_hash
     end
     
     # Serialize this object as a hash 
@@ -335,6 +322,8 @@ class Chef
         'json_class' => self.class.name,
         "attributes" => @attribute,
         "chef_type" => "node",
+        "defaults" => @default_attrs,
+        "overrides" => @override_attrs,
         "run_list" => @run_list.run_list,
       }
       result["_rev"] = @couchdb_rev if @couchdb_rev
@@ -349,10 +338,10 @@ class Chef
         node[k] = v
       end
       if o.has_key?("defaults")
-        node.default = o["defaults"]
+        node.default_attrs = Mash.new(o["defaults"])
       end
       if o.has_key?("overrides")
-        node.override = o["overrides"]
+        node.override_attrs = Mash.new(o["overrides"])
       end
       if o.has_key?("run_list")
         node.run_list.reset(o["run_list"])
@@ -360,47 +349,96 @@ class Chef
         o["recipes"].each { |r| node.recipes << r }
       end
       node.couchdb_rev = o["_rev"] if o.has_key?("_rev")
+      node.couchdb_id = o["_id"] if o.has_key?("_id")
       node
     end
     
     # List all the Chef::Node objects in the CouchDB.  If inflate is set to true, you will get
     # the full list of all Nodes, fully inflated.
-    def self.list(inflate=false)
-      rs = Chef::CouchDB.new.list("nodes", inflate)
+    def self.cdb_list(inflate=false, couchdb=nil)
+      couchdb = couchdb ? couchdb : Chef::CouchDB.new
+      rs = couchdb.list("nodes", inflate)
       if inflate
         rs["rows"].collect { |r| r["value"] }
       else
         rs["rows"].collect { |r| r["key"] }
       end
     end
+
+    def self.list(inflate=false)
+      r = Chef::REST.new(Chef::Config[:chef_server_url])
+      if inflate
+        response = Hash.new
+        Chef::Search::Query.new.search(:node) do |n|
+          response[n.name] = n unless n.nil?
+        end
+        response
+      else
+        r.get_rest("nodes")
+      end
+    end
     
     # Load a node by name from CouchDB
+    def self.cdb_load(name, couchdb=nil)
+      couchdb = couchdb ? couchdb : Chef::CouchDB.new
+      couchdb.load("node", name)
+    end
+
+    # Load a node by name
     def self.load(name)
-      Chef::CouchDB.new.load("node", name)
+      r = Chef::REST.new(Chef::Config[:chef_server_url])
+      r.get_rest("nodes/#{name}")
     end
     
     # Remove this node from the CouchDB
-    def destroy
-      Chef::Queue.send_msg(:queue, :remove, self)
+    def cdb_destroy
       @couchdb.delete("node", @name, @couchdb_rev)
+    end
+
+    # Remove this node via the REST API
+    def destroy
+      r = Chef::REST.new(Chef::Config[:chef_server_url])
+      r.delete_rest("nodes/#{@name}")
     end
     
     # Save this node to the CouchDB
-    def save
-      Chef::Queue.send_msg(:queue, :index, self)
+    def cdb_save
       results = @couchdb.store("node", @name, self)
       @couchdb_rev = results["rev"]
     end
+
+    # Save this node via the REST API
+    def save
+      r = Chef::REST.new(Chef::Config[:chef_server_url])
+      begin
+        r.put_rest("nodes/#{@name}", self)
+      rescue Net::HTTPServerException => e
+        if e.response.code == "404"
+          r.post_rest("nodes", self)
+        else
+          raise e
+        end
+      end
+      self
+    end
     
+    # Create the node via the REST API
+    def create
+      r = Chef::REST.new(Chef::Config[:chef_server_url])
+      r.post_rest("nodes", self)
+      self
+    end 
+
     # Set up our CouchDB design document
-    def self.create_design_document
-      Chef::CouchDB.new.create_design_document("nodes", DESIGN_DOCUMENT)
+    def self.create_design_document(couchdb=nil)
+      couchdb = couchdb ? couchdb : Chef::CouchDB.new
+      couchdb.create_design_document("nodes", DESIGN_DOCUMENT)
     end
     
     # As a string
     def to_s
       "node[#{@name}]"
     end
-    
+
   end
 end

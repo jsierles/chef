@@ -39,14 +39,16 @@ class Chef
       # === Returns
       # true:: Returns true if the block is true, or if the command returns 0
       # false:: Returns false if the block is false, or if the command returns a non-zero exit code.
-      def only_if(command)
+      def only_if(command, args = {})
         if command.kind_of?(Proc)
-          res = command.call
-          unless res
-            return false
+          chdir_or_tmpdir(args[:cwd]) do
+            res = command.call
+            unless res
+              return false
+            end
           end
         else  
-          status = run_command(:command => command, :ignore_failure => true)
+          status = run_command({:command => command, :ignore_failure => true}.merge(args))
           if status.exitstatus != 0
             return false
           end
@@ -68,14 +70,16 @@ class Chef
       # === Returns
       # true:: Returns true if the block is false, or if the command returns a non-zero exit status.
       # false:: Returns false if the block is true, or if the command returns a 0 exit status.
-      def not_if(command)
+      def not_if(command, args = {})
         if command.kind_of?(Proc)
-          res = command.call
-          if res
-            return false
+          chdir_or_tmpdir(args[:cwd]) do
+            res = command.call
+            if res
+              return false
+            end
           end
         else  
-          status = run_command(:command => command, :ignore_failure => true)
+          status = run_command({:command => command, :ignore_failure => true}.merge(args))
           if status.exitstatus == 0
             return false
           end
@@ -130,7 +134,7 @@ class Chef
           stdout_string, stderr_string = stdout.string.chomp, stderr.string.chomp
         end
         
-        args[:cwd] ||= Dir.tmpdir        
+        args[:cwd] ||= Dir.tmpdir
         unless File.directory?(args[:cwd])
           raise Chef::Exceptions::Exec, "#{args[:cwd]} does not exist or is not a directory"
         end
@@ -179,6 +183,21 @@ class Chef
       
       module_function :handle_command_failures
            
+      # Call #run_command but set LC_ALL to the system's current environment so it doesn't get changed to C.
+      #
+      # === Parameters
+      # args<Hash>: A number of required and optional arguments that will be handed out to #run_command
+      #
+      # === Returns
+      # Returns the result of #run_command
+      def run_command_with_systems_locale(args={})
+        args[:environment] ||= {}
+        args[:environment]["LC_ALL"] = ENV["LC_ALL"]
+        run_command args
+      end
+
+      module_function :run_command_with_systems_locale
+
       # This is taken directly from Ara T Howard's Open4 library, and then 
       # modified to suit the needs of Chef.  Any bugs here are most likely
       # my own, and not Ara's.
@@ -204,7 +223,14 @@ class Chef
         unless args[:group].kind_of?(Integer)
           args[:group] = Etc.getgrnam(args[:group]).gid if args[:group]
         end
-        args[:environment] ||= nil
+        args[:environment] ||= {}
+
+        # Default on C locale so parsing commands output can be done
+        # independently of the node's default locale.
+        # "LC_ALL" could be set to nil, in which case we also must ignore it.
+        unless args[:environment].has_key?("LC_ALL")
+          args[:environment]["LC_ALL"] = "C"
+        end
         
         pw, pr, pe, ps = IO.pipe, IO.pipe, IO.pipe, IO.pipe
 
@@ -238,10 +264,8 @@ class Chef
               Process.uid = args[:user]
             end
             
-            if args[:environment]
-              args[:environment].each do |key,value|
-                ENV[key] = value
-              end
+            args[:environment].each do |key,value|
+              ENV[key] = value
             end
 
             if args[:umask]
@@ -286,6 +310,9 @@ class Chef
           begin
             if args[:waitlast]
               b[cid, *pi]
+              # send EOF so that if the child process is reading from STDIN
+              # it will actually finish up and exit
+              pi[0].close_write
               Process.waitpid2(cid).last
             else
               # This took some doing.
@@ -321,6 +348,7 @@ class Chef
                   channels_to_watch << stderr if !stderr_finished
                   ready = IO.select(channels_to_watch, nil, nil, 1.0)
                 rescue Errno::EAGAIN
+                ensure
                   results = Process.waitpid2(cid, Process::WNOHANG)
                   if results
                     stdout_finished = true
@@ -345,11 +373,11 @@ class Chef
                   end
                 end
               end
-              results = Process.waitpid2(cid).last unless results
+              results = Process.waitpid2(cid) unless results
               o.rewind
               e.rewind
               b[cid, pi[0], o, e]
-              results
+              results.last
             end
           ensure
             pi.each{|fd| fd.close unless fd.closed?}
@@ -361,6 +389,17 @@ class Chef
       
       module_function :popen4
 
+      def chdir_or_tmpdir(dir, &block)
+        dir ||= Dir.tmpdir
+        unless File.directory?(dir)
+          raise Chef::Exceptions::Exec, "#{dir} does not exist or is not a directory"
+        end
+        Dir.chdir(dir) do
+          block.call
+        end
+      end
+
+      module_function :chdir_or_tmpdir
     end
   end
 end

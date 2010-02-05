@@ -36,6 +36,18 @@ describe Chef::Resource::Deploy do
         @resource.send(attr_name).should eql( !opts[:defaults_to] )
       end
     end
+    
+    def resource_has_a_callback_attribute(attr_name)
+      it "has a Callback attribute #{attr_name}" do
+        callback_block = lambda { :noop }
+        lambda {@resource.send(attr_name, &callback_block)}.should_not raise_error
+        @resource.send(attr_name).should == callback_block
+        callback_file = "path/to/callback.rb"
+        lambda {@resource.send(attr_name, callback_file)}.should_not raise_error
+        @resource.send(attr_name).should == callback_file
+        lambda {@resource.send(attr_name, :this_is_fail)}.should raise_error(ArgumentError)
+      end
+    end
   end
   
   before do
@@ -61,7 +73,6 @@ describe Chef::Resource::Deploy do
   resource_has_a_boolean_attribute(:migrate, :defaults_to=>false)
   resource_has_a_boolean_attribute(:enable_submodules, :defaults_to=>false)
   resource_has_a_boolean_attribute(:shallow_clone, :defaults_to=>false)
-  resource_has_a_boolean_attribute(:force_deploy, :defaults_to=>false)
   
   it "uses the first argument as the deploy directory" do
     @resource.deploy_to.should eql("/my/deploy/dir")
@@ -79,6 +90,25 @@ describe Chef::Resource::Deploy do
     @resource.scm_provider.should eql(Chef::Provider::Git)
     @resource.scm_provider Chef::Provider::Subversion
     @resource.scm_provider.should eql(Chef::Provider::Subversion)
+  end
+  
+  it "allows scm providers to be set via symbol" do
+    @resource.scm_provider.should == Chef::Provider::Git
+    @resource.scm_provider :subversion
+    @resource.scm_provider.should == Chef::Provider::Subversion
+  end
+  
+  it "allows scm providers to be set via string" do
+    @resource.scm_provider.should == Chef::Provider::Git
+    @resource.scm_provider "subversion"
+    @resource.scm_provider.should == Chef::Provider::Subversion
+  end
+
+  it "has a boolean attribute for svn_force_export defaulting to false" do
+    @resource.svn_force_export.should be_false
+    @resource.svn_force_export true
+    @resource.svn_force_export.should be_true
+    lambda {@resource.svn_force_export(10053)}.should raise_error(ArgumentError)
   end
   
   it "takes arbitrary environment variables in a hash" do
@@ -149,4 +179,39 @@ describe Chef::Resource::Deploy do
     @resource.symlink_before_migrate.should == {"wtf?" => "wtf is going on"}
   end
   
+  resource_has_a_callback_attribute :before_migrate
+  resource_has_a_callback_attribute :before_symlink
+  resource_has_a_callback_attribute :before_restart
+  resource_has_a_callback_attribute :after_restart
+  
+  it "aliases restart_command as restart" do
+    @resource.restart "foobaz"
+    @resource.restart_command.should == "foobaz"
+  end
+  
+  it "takes a block for the restart parameter" do
+    restart_like_this = lambda {p :noop}
+    @resource.restart(&restart_like_this)
+    @resource.restart.should == restart_like_this
+  end
+  
+  it "defaults to using the Deploy::Timestamped provider" do
+    @resource.provider.should == Chef::Provider::Deploy::Timestamped
+  end
+  
+  it "allows providers to be set with a full class name" do
+    @resource.provider Chef::Provider::Deploy::Timestamped
+    @resource.provider.should == Chef::Provider::Deploy::Timestamped
+  end
+  
+  it "allows deploy providers to be set via symbol" do
+    @resource.provider :revision
+    @resource.provider.should == Chef::Provider::Deploy::Revision
+  end
+  
+  it "allows deploy providers to be set via string" do
+    @resource.provider "revision"
+    @resource.provider.should == Chef::Provider::Deploy::Revision
+  end
+
 end

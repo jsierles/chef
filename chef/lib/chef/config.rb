@@ -17,6 +17,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+require 'chef/log'
 require 'mixlib/config'
 
 class Chef
@@ -54,13 +55,24 @@ class Chef
           :template_url,
           :remotefile_url,
           :search_url,
+          :chef_server_url,
           :role_url ].each do |u| 
             c[u] = url
         end
       end
       url
     end
-    
+
+    # When you are using ActiveSupport, they monkey-patch 'daemonize' into Kernel.  
+    # So while this is basically identical to what method_missing would do, we pull
+    # it up here and get a real method written so that things get dispatched 
+    # properly.
+    config_attr_writer :daemonize do |v|
+      configure do |c|
+        c[:daemonize] = v
+      end
+    end
+
     # Override the config dispatch to set the value of log_location configuration option
     #
     # === Parameters
@@ -70,7 +82,9 @@ class Chef
       if location.respond_to? :sync=
         location
       elsif location.respond_to? :to_str
-        File.new(location.to_str, "a")
+        f = File.new(location.to_str, "a")
+        f.sync = true
+        f
       end
     end
 
@@ -86,16 +100,15 @@ class Chef
 
     authorized_openid_identifiers nil
     authorized_openid_providers nil
-    chef_server_url nil
-    cookbook_path [ "/var/chef/site-cookbooks", "/var/chef/cookbooks" ]
+    cookbook_path [ "/var/chef/cookbooks", "/var/chef/site-cookbooks" ]
+    cookbook_tarball_path "/var/chef/cookbook-tarballs"
     couchdb_database "chef"
     couchdb_url "http://localhost:5984"
     couchdb_version nil
-    daemonize nil
     delay 0
     executable_path ENV['PATH'] ? ENV['PATH'].split(File::PATH_SEPARATOR) : []
     file_cache_path "/var/chef/cache"
-    file_store_path "/var/chef/store"
+    file_backup_path nil
     group nil
     http_retry_count 5
     http_retry_delay 5
@@ -103,10 +116,11 @@ class Chef
     json_attribs nil
     log_level :info
     log_location STDOUT
+    verbose_logging nil
     node_name nil
     node_path "/var/chef/node"
     openid_cstore_couchdb false
-    openid_cstore_path "/var/chef/openid/cstore"
+    openid_cstore_path "/var/chef/openid/cstore"    
     openid_providers nil
     openid_store_couchdb false
     openid_store_path "/var/chef/openid/db"
@@ -118,8 +132,9 @@ class Chef
     queue_retry_count 5
     queue_retry_delay 5
     queue_user ""
-    queue_prefix nil
+    chef_server_url "http://localhost:4000"
     registration_url "http://localhost:4000"
+    client_url "http://localhost:4042"
     remotefile_url "http://localhost:4000"
     rest_timeout 60
     run_command_stderr_timeout 120
@@ -131,11 +146,54 @@ class Chef
     ssl_client_cert ""
     ssl_client_key ""
     ssl_verify_mode :verify_none
+    ssl_ca_path nil
+    ssl_ca_file nil
     template_url "http://localhost:4000"
+    umask 0022
     user nil
     validation_token nil
     role_path "/var/chef/roles"
     role_url "http://localhost:4000"
     recipe_url nil
+    solr_url "http://localhost:8983"
+    solr_jetty_path "/var/chef/solr-jetty"
+    solr_data_path "/var/chef/solr/data"
+    solr_home_path "/var/chef/solr"
+    solr_heap_size "256M"
+    solr_java_opts nil
+    amqp_host '0.0.0.0'
+    amqp_port '5672'
+    amqp_user 'chef'
+    amqp_pass 'testing'
+    amqp_vhost '/chef'
+    # Setting this to a UUID string also makes the queue durable 
+    # (persist across rabbitmq restarts)
+    amqp_consumer_id nil
+
+    client_key "/etc/chef/client.pem"
+    validation_key "/etc/chef/validation.pem"
+    validation_client_name "chef-validator"
+    web_ui_client_name "chef-webui"
+    web_ui_key "/etc/chef/webui.pem"
+    web_ui_admin_user_name  "admin"
+    web_ui_admin_default_password "p@ssw0rd1"
+
+    # Server Signing CA
+    #
+    # In truth, these don't even have to change
+    signing_ca_cert "/var/chef/ca/cert.pem"
+    signing_ca_key "/var/chef/ca/key.pem"
+    signing_ca_country "US"
+    signing_ca_state "Washington"
+    signing_ca_location "Seattle"
+    signing_ca_org "Chef User"
+    signing_ca_domain "opensource.opscode.com"
+    signing_ca_email "opensource-cert@opscode.com"
+
+    # Checksum Cache
+    # Uses Moneta on the back-end
+    cache_type "BasicFile"
+    cache_options({ :path => "/var/chef/cache/checksums", :skip_expires => true })
+
   end
 end

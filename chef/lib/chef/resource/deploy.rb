@@ -38,7 +38,19 @@ require "chef/resource/scm"
 
 class Chef
   class Resource
+    
+    # Deploy: Deploy apps from a source control repository.
+    #
+    # Callbacks:
+    # Callbacks can be a block or a string. If given a block, the code
+    # is evaluated as an embedded recipe, and run at the specified
+    # point in the deploy process. If given a string, the string is taken as
+    # a path to a callback file/recipe. Paths are evaluated relative to the 
+    # release directory. Callback files can contain chef code (resources, etc.)
+    #
     class Deploy < Chef::Resource
+      
+      provider_base Chef::Provider::Deploy
       
       def initialize(name, collection=nil, node=nil)
         super(name, collection, node)
@@ -57,10 +69,10 @@ class Chef
         @remote = "origin"
         @enable_submodules = false
         @shallow_clone = false
-        @force_deploy = false
         @scm_provider = Chef::Provider::Git
-        @provider = Chef::Provider::Deploy
-        @allowed_actions.push(:deploy, :rollback)
+        @svn_force_export = false
+        @provider = Chef::Provider::Deploy::Timestamped
+        @allowed_actions.push(:force_deploy, :deploy, :rollback)
       end
       
       # where the checked out/cloned code goes
@@ -116,13 +128,15 @@ class Chef
         )
       end
       
-      def restart_command(arg=nil)
+      def restart_command(arg=nil, &block)
+        arg ||= block
         set_or_return(
           :restart_command,
           arg,
-          :kind_of => [ String ]
+          :kind_of => [ String, Proc ]
         )
       end
+      alias :restart :restart_command
       
       def migrate(arg=nil)
         set_or_return(
@@ -230,20 +244,24 @@ class Chef
         )
       end
       
-      # Shall we run the deploy even if the code has not changed?
-      def force_deploy(arg=nil)
+      def scm_provider(arg=nil)
+        klass = if arg.kind_of?(String) || arg.kind_of?(Symbol)
+                  lookup_provider_constant(arg)
+                else
+                  arg
+                end
         set_or_return(
-          :force_deploy,
-          arg,
-          :kind_of => [ TrueClass, FalseClass ]
+          :scm_provider,
+          klass,
+          :kind_of => [ Class ]
         )
       end
       
-      def scm_provider(arg=nil)
+      def svn_force_export(arg=nil)
         set_or_return(
-          :scm_provider,
+          :svn_force_export,
           arg,
-          :kind_of => [ Class ]
+          :kind_of => [ TrueClass, FalseClass ]
         )
       end
       
@@ -316,7 +334,31 @@ class Chef
           :kind_of => Hash
         )
       end
-
+      
+      # Callback fires before migration is run.
+      def before_migrate(arg=nil, &block)
+        arg ||= block
+        set_or_return(:before_migrate, arg, :kind_of => [Proc, String])
+      end
+      
+      # Callback fires before symlinking
+      def before_symlink(arg=nil, &block)
+        arg ||= block
+        set_or_return(:before_symlink, arg, :kind_of => [Proc, String])
+      end
+      
+      # Callback fires before restart
+      def before_restart(arg=nil, &block)
+        arg ||= block
+        set_or_return(:before_restart, arg, :kind_of => [Proc, String])
+      end
+      
+      # Callback fires after restart
+      def after_restart(arg=nil, &block)
+        arg ||= block
+        set_or_return(:after_restart, arg, :kind_of => [Proc, String])
+      end
+      
     end
   end
 end

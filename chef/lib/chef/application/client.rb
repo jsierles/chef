@@ -1,5 +1,6 @@
 #
 # Author:: AJ Christensen (<aj@opscode.com)
+# Author:: Christopher Brown (<cb@opscode.com>)
 # Copyright:: Copyright (c) 2008 Opscode, Inc.
 # License:: Apache License, Version 2.0
 #
@@ -20,8 +21,7 @@ require 'chef/client'
 require 'chef/config'
 require 'chef/daemon'
 require 'chef/log'
-require 'net/http'
-require 'open-uri'
+require 'chef/rest'
 
 
 class Chef::Application::Client < Chef::Application
@@ -43,6 +43,12 @@ class Chef::Application::Client < Chef::Application
     :long         => "--logfile LOGLOCATION",
     :description  => "Set the log file location, defaults to STDOUT - recommended for daemonizing",
     :proc         => nil
+
+  option :verbose_logging,
+    :short        => "-V",
+    :long         => "--verbose",
+    :description  => "Ensures logging goes to STDOUT as well as to other configured log location(s).",
+    :proc         => lambda { |p| true }
 
   option :help,
     :short        => "-h",
@@ -135,7 +141,13 @@ class Chef::Application::Client < Chef::Application
 
     if Chef::Config[:json_attribs]
       begin
-          json_io = open(Chef::Config[:json_attribs])
+        json_io = case Chef::Config[:json_attribs]
+                  when /^(http|https):\/\//
+                    @rest = Chef::REST.new(Chef::Config[:json_attribs], nil, nil)
+                    @rest.get_rest(Chef::Config[:json_attribs], true).open
+                  else
+                    open(Chef::Config[:json_attribs])
+                  end
       rescue SocketError => error
         Chef::Application.fatal!("I cannot connect to #{Chef::Config[:json_attribs]}", 2)
       rescue Errno::ENOENT => error
@@ -148,10 +160,16 @@ class Chef::Application::Client < Chef::Application
 
       begin
         @chef_client_json = JSON.parse(json_io.read)
+        json_io.close unless json_io.closed?
       rescue JSON::ParserError => error
         Chef::Application.fatal!("Could not parse the provided JSON file (#{Chef::Config[:json_attribs]})!: " + error.message, 2)
       end
     end
+  end
+
+  def configure_logging
+    super
+    Mixlib::Authentication::Log.logger = Chef::Log.logger
   end
   
   # Setup an instance of the chef client

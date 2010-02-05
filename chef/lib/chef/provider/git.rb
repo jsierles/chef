@@ -36,14 +36,20 @@ class Chef
       end
       
       def action_checkout
-        clone
-        checkout
-        enable_submodules
+        if !::File.exist?(@new_resource.destination) || Dir.entries(@new_resource.destination) == ['.','..']
+          clone
+          checkout
+          enable_submodules
+          @new_resource.updated = true
+        else
+          Chef::Log.info "Taking no action, checkout destination #{@new_resource.destination} already exists or is a non-empty directory"
+        end
       end
       
       def action_export
         action_checkout
         FileUtils.rm_rf(::File.join(@new_resource.destination,".git"))
+        @new_resource.updated = true
       end
       
       def action_sync
@@ -53,6 +59,8 @@ class Chef
           sync
           enable_submodules
         end
+
+        @new_resource.updated = true
       end
       
       def find_current_revision
@@ -113,46 +121,45 @@ class Chef
         end
 
         # since we're in a local branch already, just reset to specified revision rather than merge
-        sync_command << "#{git} fetch #{@new_resource.remote} && #{git} reset --hard #{revision}"
+        sync_command << "#{git} fetch #{@new_resource.remote} --tags && #{git} reset --hard #{revision}"
         Chef::Log.info "Fetching updates from #{new_resource.remote} and resetting to revison #{revision}"
         run_command(run_options(:command => sync_command.join(" && "), :cwd => @new_resource.destination))
       end
       
       def revision_sha
-        reference = @new_resource.revision
-        if reference =~ /^origin\//
-          raise RuntimeError, "Deploying remote branches is not supported. " +
-                                "Specify the remote branch as a local branch for the git repository you're deploying from " + 
-                                "(ie: '#{reference.gsub('origin/', '')}' rather than '#{reference}')."
+        @revision_sha ||= begin
+          assert_revision_not_remote
+          
+          if sha_hash?(@new_resource.revision)
+            @revision_sha = @new_resource.revision 
+          else
+            resolved_reference = remote_resolve_reference
+            @revision_sha = extract_revision(resolved_reference)
+          end
         end
-        return reference if sha_hash?(reference) # it's already a sha
+      end
+      
+      alias :revision_slug :revision_sha
+      
+      def remote_resolve_reference
+        command = scm('ls-remote', @new_resource.repository, @new_resource.revision)
+        Chef::Log.debug("Executing #{command}")
         begin
-          reference, error_message = remote_resolve_reference
+          status, result, error_message = output_of_command(command, run_options)
+          handle_command_failures(status, "STDOUT: #{result}\nSTDERR: #{error_message}")
         rescue RuntimeError => e
           raise RuntimeError, e.message + "\n" + "Could not access the remote Git repository. "+
                 "If this is a private repository, please verify that the deploy key for your application " +
                 "has been added to your remote Git account."
         end
-        unless reference =~ /^([0-9a-f]{40})\s+(\S+)/
-          raise "Unable to resolve reference for '#{reference}' on repository '#{@new_resource.repository}'."
-        end
-        newrev = $1
-        newref = $2
-        return newrev
-      end
-      
-      def remote_resolve_reference
-        command = scm('ls-remote', @new_resource.repository, @new_resource.revision)
-        Chef::Log.debug("Executing #{command}")
-        status, result, error_message = output_of_command(command, run_options)
-        handle_command_failures(status, "STDOUT: #{result}\nSTDERR: #{error_message}")
-        return result, error_message
+        result
       end
       
       private
       
       def run_options(run_opts={})
         run_opts[:user] = @new_resource.user if @new_resource.user
+        run_opts[:group] = @new_resource.group if @new_resource.group
         run_opts[:environment] = {"GIT_SSH" => @new_resource.ssh_wrapper} if @new_resource.ssh_wrapper
         run_opts
       end
@@ -171,6 +178,24 @@ class Chef
       
       def sha_hash?(string)
         string =~ /^[0-9a-f]{40}$/
+      end
+      
+      def assert_revision_not_remote
+        if @new_resource.revision =~ /^origin\//
+          reference = @new_resource.revision
+          error_text =  "Deploying remote branches is not supported. " +
+                        "Specify the remote branch as a local branch for " +
+                        "the git repository you're deploying from " + 
+                        "(ie: '#{reference.gsub('origin/', '')}' rather than '#{reference}')."
+          raise RuntimeError, error_text
+        end
+      end
+      
+      def extract_revision(resolved_reference)
+        unless resolved_reference =~ /^([0-9a-f]{40})\s+(\S+)/
+          raise "Unable to resolve reference for '#{resolved_reference}' on repository '#{@new_resource.repository}'."
+        end
+        $1
       end
       
     end

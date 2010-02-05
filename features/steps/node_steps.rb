@@ -20,9 +20,8 @@
 # Given
 ###
 Given /^a validated node$/ do
-  client.validation_token = Chef::Config[:validation_token] = 'ceelo'
+  client.determine_node_name
   client.register
-  client.authenticate
   client.build_node
   client.node.recipes << "integration_setup"
 end
@@ -30,6 +29,12 @@ end
 Given /^it includes the recipe '(.+)'$/ do |recipe|
   self.recipe = recipe
   client.node.recipes << recipe
+  client.save_node
+end
+
+Given /^it includes no recipes$/ do 
+  self.recipe = "" 
+  client.node.run_list.reset
   client.save_node
 end
 

@@ -23,24 +23,34 @@ class Chef
     module GenerateURL
     
       def generate_cookbook_url(url, cookbook, type, node, args=nil)
+        Chef::Log.debug("generating cookbook url for url=#{url}, cookbook=#{cookbook.inspect}, type=#{type}, node=#{node}")
         new_url = nil
         if url =~ /^(http|https):\/\//
           new_url = url
         else
           new_url = "cookbooks/#{cookbook}/#{type}?"
           new_url += "id=#{url}"
-          platform, version = Chef::Platform.find_platform_and_version(node)
-          if type == "files" || type == "templates"
-            new_url += "&platform=#{platform}&version=#{version}&fqdn=#{node[:fqdn]}&node_name=#{node.name}"
-          end
-          if args
-            args.each do |key, value|
-              new_url += "&#{key}=#{value}"
-            end
+          new_url = generate_cookbook_url_from_uri(new_url, node, args)
+        end
+        Chef::Log.debug("generated cookbook url: #{new_url}")
+        return new_url
+      end
+
+      def generate_cookbook_url_from_uri(uri, node, args=nil)
+        platform, version = Chef::Platform.find_platform_and_version(node)
+        uri =~ /cookbooks\/(.+?)\/(.+)\?/
+        cookbook = $1
+        type = $2
+        if type == "files" || type == "templates"
+          uri += "&platform=#{platform}&version=#{version}&fqdn=#{node[:fqdn]}&node_name=#{node.name}"
+        end
+        if args
+          args.each do |key, value|
+            uri += "&#{key}=#{value}"
           end
         end
 
-        return new_url
+        uri
       end
       
     end

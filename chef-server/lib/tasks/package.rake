@@ -13,14 +13,13 @@ spec = Gem::Specification.new do |s|
   s.email = EMAIL
   s.homepage = HOMEPAGE
   
-  %w{stomp stompserver ferret
-    merb-core merb-haml merb-assets
-    merb-helpers mongrel haml
+  %w{ merb-core merb-haml merb-assets
+    merb-helpers thin haml
     ruby-openid json coderay}.each { |gem| s.add_dependency gem }
   
   s.bindir       = "bin"
-  s.executables  = %w( chef-server chef-indexer )  
-  s.files = %w(LICENSE README.rdoc config.ru) + Dir.glob("{app,bin,config,lib,public}/**/*")
+  s.executables  = %w( chef-server chef-server-webui )  
+  s.files = %w(LICENSE README.rdoc config.ru config-webui.ru) + Dir.glob("{app,bin,config,lib,public}/**/*")
 end
 
 Rake::GemPackageTask.new(spec) do |pkg|

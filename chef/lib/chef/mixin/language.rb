@@ -16,6 +16,10 @@
 # limitations under the License.
 #
 
+require 'chef/search/query'
+require 'chef/data_bag'
+require 'chef/data_bag_item'
+
 class Chef
   module Mixin
     module Language
@@ -73,7 +77,31 @@ class Chef
   
         has_platform
       end
-      
+
+      def search(*args, &block)
+        # If you pass a block, or have at least the start argument, do raw result parsing
+        # 
+        # Otherwise, do the iteration for the end user
+        if Kernel.block_given? || args.length >= 4 
+          Chef::Search::Query.new.search(*args, &block)
+        else 
+          results = Array.new
+          Chef::Search::Query.new.search(*args) do |o|
+            results << o 
+          end
+          results
+        end
+      end
+
+      def data_bag(bag)
+        rbag = Chef::DataBag.load(bag)
+        rbag.keys
+      end
+
+      def data_bag_item(bag, item)
+        Chef::DataBagItem.load(bag, item)
+      end
+
     end
   end
 end

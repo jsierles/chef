@@ -37,10 +37,17 @@ class Chef
       
       def action_checkout
         run_command(run_options(:command => checkout_command))
+        @new_resource.updated = true
       end
       
       def action_export
         run_command(run_options(:command => export_command))
+        @new_resource.updated = true
+      end
+      
+      def action_force_export
+        run_command(run_options(:command => export_command(:force => true)))
+        @new_resource.updated = true
       end
       
       def action_sync
@@ -49,6 +56,7 @@ class Chef
         else
           run_command(run_options(:command => sync_command))
         end
+        @new_resource.updated = true
       end
       
       def sync_command
@@ -62,22 +70,31 @@ class Chef
             "-r#{revision_int}", @new_resource.repository, @new_resource.destination
       end
       
-      def export_command
+      def export_command(opts={})
         Chef::Log.info "exporting #{@new_resource.repository} at revision #{@new_resource.revision} to #{@new_resource.destination}"
-        scm :export, @new_resource.svn_arguments, verbose, authentication,
-            "-r#{revision_int}", @new_resource.repository, @new_resource.destination
+        args = opts[:force] ? ["--force"] : []
+        args << @new_resource.svn_arguments << verbose << authentication <<
+            "-r#{revision_int}" << @new_resource.repository << @new_resource.destination
+        scm :export, *args
       end
       
       # If the specified revision isn't an integer ("HEAD" for example), look
       # up the revision id by asking the server
       # If the specified revision is an integer, trust it.
       def revision_int
-        return @new_resource.revision if @new_resource.revision =~ /^\d+$/
-        command = scm(:info, @new_resource.repository, authentication, "-r#{@new_resource.revision}")
-        status, svn_info, error_message = output_of_command(command, run_options)
-        handle_command_failures(status, "STDOUT: #{svn_info}\nSTDERR: #{error_message}")
-        extract_revision_info(svn_info)
+        @revision_int ||= begin
+          if @new_resource.revision =~ /^\d+$/
+            @new_resource.revision
+          else
+            command = scm(:info, @new_resource.repository, authentication, "-r#{@new_resource.revision}")
+            status, svn_info, error_message = output_of_command(command, run_options)
+            handle_command_failures(status, "STDOUT: #{svn_info}\nSTDERR: #{error_message}")
+            extract_revision_info(svn_info)
+          end
+        end
       end
+      
+      alias :revision_slug :revision_int
       
       def find_current_revision
         return nil unless ::File.exist?(@new_resource.destination)
@@ -92,6 +109,7 @@ class Chef
       
       def run_options(run_opts={})
         run_opts[:user] = @new_resource.user if @new_resource.user
+        run_opts[:group] = @new_resource.group if @new_resource.group
         run_opts
       end
       
@@ -112,7 +130,7 @@ class Chef
           # YAML doesn't appreciate input like "svn: '/tmp/deploydir' is not a working copy\n"
           return nil
         end
-        raise "tried to run `#{command}' and got unexpected result #{result.inspect}" unless repo_attrs.kind_of?(Hash)
+        raise "Could not parse `svn info` data: #{svn_info}" unless repo_attrs.kind_of?(Hash)
         rev = (repo_attrs['Last Changed Rev'] || repo_attrs['Revision']).to_s
         Chef::Log.debug "Resolved revision #{@new_resource.revision} to #{rev}"
         rev

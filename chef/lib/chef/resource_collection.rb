@@ -18,15 +18,22 @@
 #
 
 require 'chef/resource'
+require 'chef/resource_collection/stepable_iterator'
 
 class Chef
   class ResourceCollection
     include Enumerable
+    
+    attr_reader :iterator
 
     def initialize
       @resources = Array.new
       @resources_by_name = Hash.new
-      @currently_executing_resource_idx = nil
+      @insert_after_idx = nil
+    end
+    
+    def all_resources
+      @resources
     end
     
     def [](index)
@@ -49,15 +56,17 @@ class Chef
 
     def insert(resource)
       is_chef_resource(resource)
-      if @currently_executing_resource_idx
+      if @insert_after_idx
         # in the middle of executing a run, so any resources inserted now should
-        # be placed after the currently executing resource
-        @resources.insert(@currently_executing_resource_idx + 1, resource)
+        # be placed after the most recent addition done by the currently executing
+        # resource
+        @resources.insert(@insert_after_idx + 1, resource)
         # update name -> location mappings and register new resource
         @resources_by_name.each_key do |key|
-          @resources_by_name[key] += 1 if @resources_by_name[key] > @currently_executing_resource_idx
+          @resources_by_name[key] += 1 if @resources_by_name[key] > @insert_after_idx
         end
-        @resources_by_name[resource.to_s] = @currently_executing_resource_idx + 1
+        @resources_by_name[resource.to_s] = @insert_after_idx + 1
+        @insert_after_idx += 1
       else  
         @resources << resource
         @resources_by_name[resource.to_s] = @resources.length - 1
@@ -65,23 +74,24 @@ class Chef
     end
     
     def push(*args)
-      args.flatten.each do |a|
-        is_chef_resource(a)
-        @resources.push(a)
-        @resources_by_name[a.to_s] = @resources.length - 1
+      args.flatten.each do |arg|
+        is_chef_resource(arg)
+        @resources.push(arg)
+        @resources_by_name[arg.to_s] = @resources.length - 1
       end
     end
   
     def each
-      @resources.each do |r|
-        yield r
+      @resources.each do |resource|
+        yield resource
       end
     end
 
-    def execute_each_resource
-      @resources.each_with_index do |r, idx|
-        @currently_executing_resource_idx = idx
-        yield r
+    def execute_each_resource(&resource_exec_block)
+      @iterator = StepableIterator.for_collection(@resources)
+      @iterator.each_with_index do |resource, idx|
+        @insert_after_idx = idx
+        yield resource
       end
     end
     

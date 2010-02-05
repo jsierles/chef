@@ -72,26 +72,19 @@ class Chef
           File.join("#{platform}", "#{file_name}"),
           File.join("default", "#{file_name}")
         ]
-        to_send = nil
+        
+        file_list_str = file_list.keys.join("\n")
+        Chef::Log.debug("Searching for preferred file in\n#{file_list_str}")
         
         preferences.each do |pref|
           Chef::Log.debug("Looking for #{pref}")
-          file_list.each_key do |file|
-            Chef::Log.debug("Checking for #{pref} #{file} ")
-            if file =~ /#{pref}$/
-              Chef::Log.debug("Matched #{pref} for #{file}!")
-              to_send = file
-              break
-            end
+          matcher = /^(.+#{pref})$/
+          if match = matcher.match(file_list_str)
+            return match[1]
           end
-          break if to_send
         end
         
-        unless to_send
-          raise Chef::Exceptions::FileNotFound, "Cannot find a preferred file for #{file_name}!"
-        end
-        
-        to_send
+        raise Chef::Exceptions::FileNotFound, "Cannot find a preferred file for #{file_name}!"
       end
       
     end

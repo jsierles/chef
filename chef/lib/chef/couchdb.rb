@@ -22,39 +22,80 @@ require 'chef/log'
 require 'digest/sha2'
 require 'json'
 
+# We want to fail on create if uuidtools isn't installed
+begin
+  require 'uuidtools'
+rescue LoadError
+end
+
 class Chef
   class CouchDB
     include Chef::Mixin::ParamsValidate
 
-    def initialize(url=nil)
+    def initialize(url=nil, db=Chef::Config[:couchdb_database])
       url ||= Chef::Config[:couchdb_url]
-      @rest = Chef::REST.new(url)
+      @db = db
+      @rest = Chef::REST.new(url, nil, nil)
     end
-    
+
+    def couchdb_database(args=nil)
+      if args
+        @db = args
+      else
+        @db
+      end
+    end
+
+    def create_id_map
+      create_design_document(
+        "id_map", 
+        {
+          "version" => 1,
+          "language" => "javascript",
+          "views" => {
+            "name_to_id" => {
+              "map" => <<-EOJS
+                function(doc) {
+                  emit([ doc.chef_type, doc.name], doc._id);
+                }
+              EOJS
+            },
+            "id_to_name" => {
+              "map" => <<-EOJS
+                function(doc) { 
+                  emit(doc._id, [ doc.chef_type, doc.name ]);
+                }
+              EOJS
+            }
+          }
+        }
+      )
+    end
+
     def create_db
       @database_list = @rest.get_rest("_all_dbs")
-      unless @database_list.detect { |db| db == Chef::Config[:couchdb_database] }
-        response = @rest.put_rest(Chef::Config[:couchdb_database], Hash.new)
+      unless @database_list.detect { |db| db == couchdb_database }
+        response = @rest.put_rest(couchdb_database, Hash.new)
       end
-      Chef::Config[:couchdb_database]
+      couchdb_database
     end
     
     def create_design_document(name, data)
       create_db
       to_update = true
       begin
-        old_doc = @rest.get_rest("#{Chef::Config[:couchdb_database]}/_design%2F#{name}")
+        old_doc = @rest.get_rest("#{couchdb_database}/_design/#{name}")
         if data["version"] != old_doc["version"]
           data["_rev"] = old_doc["_rev"]
           Chef::Log.debug("Updating #{name} views")
         else
           to_update = false
         end
-      rescue
-        Chef::Log.debug("Creating #{name} views for the first time")
+      rescue 
+        Chef::Log.debug("Creating #{name} views for the first time because: #{$!}")
       end
       if to_update
-        @rest.put_rest("#{Chef::Config[:couchdb_database]}/_design%2F#{name}", data)
+        @rest.put_rest("#{couchdb_database}/_design%2F#{name}", data)
       end
       true
     end
@@ -70,7 +111,16 @@ class Chef
           :object => { :respond_to => :to_json },
         }
       )
-      @rest.put_rest("#{Chef::Config[:couchdb_database]}/#{obj_type}_#{safe_name(name)}", object)
+      response = get_view("id_map", "name_to_id", :key => [ obj_type, name ])
+      uuid    = response["rows"].empty? ? nil : response["rows"].first.fetch("id")
+      uuid  ||= UUIDTools::UUID.random_create.to_s
+      
+      db_put_response = @rest.put_rest("#{couchdb_database}/#{uuid}", object)
+      
+      Chef::Log.info("Sending #{obj_type}(#{uuid}) to the index queue for addition.")
+      object.add_to_index(:database => couchdb_database, :id => uuid, :type => obj_type)
+      
+      db_put_response
     end
 
     def load(obj_type, name)
@@ -84,7 +134,9 @@ class Chef
           :name => { :kind_of => String },
         }
       )
-      @rest.get_rest("#{Chef::Config[:couchdb_database]}/#{obj_type}_#{safe_name(name)}")
+      doc = find_by_name(obj_type, name)
+      doc.couchdb = self if doc.respond_to?(:couchdb)
+      doc 
     end
   
     def delete(obj_type, name, rev=nil)
@@ -98,15 +150,22 @@ class Chef
           :name => { :kind_of => String },
         }
       )
+      del_id = nil 
+      object, uuid = find_by_name(obj_type, name, true)
       unless rev
-        last_obj = @rest.get_rest("#{Chef::Config[:couchdb_database]}/#{obj_type}_#{safe_name(name)}")
-        if last_obj.respond_to?(:couchdb_rev)
-          rev = last_obj.couchdb_rev
+        if object.respond_to?(:couchdb_rev)
+          rev = object.couchdb_rev
         else
-          rev = last_obj['_rev']
+          rev = object['_rev']
         end
       end
-      @rest.delete_rest("#{Chef::Config[:couchdb_database]}/#{obj_type}_#{safe_name(name)}?rev=#{rev}")
+      response = @rest.delete_rest("#{couchdb_database}/#{uuid}?rev=#{rev}")
+      response.couchdb = self if response.respond_to?(:couchdb=)
+      Chef::Log.info("Sending #{obj_type}(#{uuid}) to the index queue for deletion..")
+      
+      object.delete_from_index(:database => couchdb_database, :id => uuid, :type => obj_type)
+
+      response
     end
   
     def list(view, inflate=false)
@@ -119,10 +178,13 @@ class Chef
         }
       )
       if inflate
-        @rest.get_rest(view_uri(view, "all"))
+        r = @rest.get_rest(view_uri(view, "all"))
+        r["rows"].each { |i| i["value"].couchdb = self if i["value"].respond_to?(:couchdb=) }
+        r
       else
-        @rest.get_rest(view_uri(view, "all_id"))
+        r = @rest.get_rest(view_uri(view, "all_id"))
       end
+      r
     end
   
     def has_key?(obj_type, name)
@@ -137,10 +199,22 @@ class Chef
         }
       )
       begin
-        @rest.get_rest("#{Chef::Config[:couchdb_database]}/#{obj_type}_#{safe_name(name)}")
+        find_by_name(obj_type, name)
         true
       rescue
         false
+      end
+    end
+
+    def find_by_name(obj_type, name, with_id=false)
+      r = get_view("id_map", "name_to_id", :key => [ obj_type, name ], :include_docs => true)
+      if r["rows"].length == 0
+        raise Chef::Exceptions::CouchDBNotFound, "Cannot find #{obj_type} #{name} in CouchDB!"
+      end
+      if with_id
+        [ r["rows"][0]["doc"], r["rows"][0]["id"] ]
+      else
+        r["rows"][0]["doc"] 
       end
     end
 
@@ -151,26 +225,25 @@ class Chef
       options.each { |k,v| view_string << "#{first ? '' : '&'}#{k}=#{URI.escape(v.to_json)}"; first = false }
       @rest.get_rest(view_string)
     end
+
+    def bulk_get(*to_fetch)
+      response = @rest.post_rest("#{couchdb_database}/_all_docs?include_docs=true", { "keys" => to_fetch.flatten })
+      response["rows"].collect { |r| r["doc"] }
+    end
     
     def view_uri(design, view)
       Chef::Config[:couchdb_version] ||= @rest.run_request(:GET,
                                                            URI.parse(@rest.url + "/"),
-                                                           false,
+                                                           {},
                                                            10,
                                                            false)["version"].gsub(/-.+/,"").to_f
       case Chef::Config[:couchdb_version]
       when 0.8
-        "#{Chef::Config[:couchdb_database]}/_view/#{design}/#{view}"
+        "#{couchdb_database}/_view/#{design}/#{view}"
       else
-        "#{Chef::Config[:couchdb_database]}/_design/#{design}/_view/#{view}"
+        "#{couchdb_database}/_design/#{design}/_view/#{view}"
       end
     end
     
-    private
-    
-      def safe_name(name)
-        name.gsub(/\./, "_")
-      end
-      
   end
 end

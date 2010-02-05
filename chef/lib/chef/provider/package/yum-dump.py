@@ -34,6 +34,8 @@ import yum
 
 from yum import Errors
 
+PIDFILE='/var/run/yum.pid'
+
 # Seconds to wait for exclusive access to yum
 lock_timeout = 10
 
@@ -43,8 +45,17 @@ failure = False
 try:
   try:
     y = yum.YumBase()
-    # Only want our output
-    y.doConfigSetup(debuglevel=0, errorlevel=0)
+    try:
+        # Only want our output
+        y.doConfigSetup(errorlevel=0,debuglevel=0)
+    except:
+        # but of course, yum on even moderately old
+        # redhat/centosen doesn't know how to do logging properly
+        # so we duck punch our way to victory
+        def __log(a,b): pass
+        y.doConfigSetup()
+        y.log = __log
+        y.errorlog = __log
     
     # Yum assumes it can update the cache directory. Disable this for non root 
     # users.
@@ -54,7 +65,7 @@ try:
     countdown = lock_timeout
     while True:
       try:
-        y.doLock()
+        y.doLock(PIDFILE)
       except Errors.LockError, e:
         time.sleep(1)
         countdown -= 1 
@@ -68,7 +79,17 @@ try:
     y.doTsSetup()
     y.doRpmDBSetup()
     
-    db = y.doPackageLists('all')
+    try:
+        db = y.doPackageLists('all')
+    except AttributeError:
+        # some people claim that testing for yum.__version__ should be
+        # enough to see if this is required, but I say they're liars.
+        # the yum on 4.8 at least understands yum.__version__ but still
+        # needs to get its repos and sacks set up manually.
+        # Thus, we just try it, fail, and then try again. WCPGW?
+        y.doRepoSetup()
+        y.doSackSetup()
+        db = y.doPackageLists('all')
     
     y.closeRpmDB()
   
@@ -80,7 +101,7 @@ try:
 # Ensure we clear the lock.
 finally:
   try:
-    y.doUnlock()
+    y.doUnlock(PIDFILE)
   # Keep Unlock from raising a second exception as it does with a yum.conf 
   # config error.
   except Errors.YumBaseError:
