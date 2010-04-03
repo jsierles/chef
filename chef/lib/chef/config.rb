@@ -100,6 +100,7 @@ class Chef
 
     authorized_openid_identifiers nil
     authorized_openid_providers nil
+    client_registration_retries 5
     cookbook_path [ "/var/chef/cookbooks", "/var/chef/site-cookbooks" ]
     cookbook_tarball_path "/var/chef/cookbook-tarballs"
     couchdb_database "chef"
@@ -136,10 +137,9 @@ class Chef
     registration_url "http://localhost:4000"
     client_url "http://localhost:4042"
     remotefile_url "http://localhost:4000"
-    rest_timeout 60
+    rest_timeout 300
     run_command_stderr_timeout 120
     run_command_stdout_timeout 120
-    search_index_path "/var/chef/search_index"
     search_url "http://localhost:4000"
     solo  false
     splay nil
@@ -168,7 +168,7 @@ class Chef
     amqp_vhost '/chef'
     # Setting this to a UUID string also makes the queue durable 
     # (persist across rabbitmq restarts)
-    amqp_consumer_id nil
+    amqp_consumer_id "default"
 
     client_key "/etc/chef/client.pem"
     validation_key "/etc/chef/validation.pem"
@@ -183,6 +183,8 @@ class Chef
     # In truth, these don't even have to change
     signing_ca_cert "/var/chef/ca/cert.pem"
     signing_ca_key "/var/chef/ca/key.pem"
+    signing_ca_user nil
+    signing_ca_group nil
     signing_ca_country "US"
     signing_ca_state "Washington"
     signing_ca_location "Seattle"

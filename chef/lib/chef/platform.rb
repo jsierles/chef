@@ -67,7 +67,15 @@ class Chef
           :mdadm => Chef::Provider::Mdadm
         }
       },
-       :suse   => {
+      :fedora   => {
+        :default => {
+          :service => Chef::Provider::Service::Redhat,
+          :cron => Chef::Provider::Cron,
+          :package => Chef::Provider::Package::Yum,
+          :mdadm => Chef::Provider::Mdadm
+        }
+      },
+      :suse     => {
         :default => {
           :service => Chef::Provider::Service::Redhat,
           :cron => Chef::Provider::Cron,
@@ -86,6 +94,14 @@ class Chef
         :default => {
           :package => Chef::Provider::Package::Portage,
           :service => Chef::Provider::Service::Gentoo,
+          :cron => Chef::Provider::Cron,
+          :mdadm => Chef::Provider::Mdadm
+        }
+      },
+      :arch   => {
+        :default => {
+          :package => Chef::Provider::Package::Pacman,
+          :service => Chef::Provider::Service::Arch,
           :cron => Chef::Provider::Cron,
           :mdadm => Chef::Provider::Mdadm
         }
@@ -113,7 +129,8 @@ class Chef
         :route => Chef::Provider::Route,
         :ifconfig => Chef::Provider::Ifconfig,
         :ruby_block => Chef::Provider::RubyBlock,
-        :erl_call => Chef::Provider::ErlCall
+        :erl_call => Chef::Provider::ErlCall,
+        :log => Chef::Provider::Log::ChefLog
       }
     }
 

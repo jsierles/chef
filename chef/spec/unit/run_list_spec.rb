@@ -131,7 +131,7 @@ describe Chef::RunList do
     it "should reset the run_list based on the array you pass" do
       @run_list << "chromeo"
       list = %w{camp chairs snakes clowns}
-      @run_list.reset(list)
+      @run_list.reset!(list)
       list.each { |i| @run_list.should be_include(i) }
       @run_list.include?("chromeo").should == false
     end
@@ -157,6 +157,12 @@ describe Chef::RunList do
     describe "from disk" do
       it "should load the role from disk" do
         Chef::Role.should_receive(:from_disk).with("stubby")
+        @run_list.expand("disk")
+      end
+
+      it "should log a helpful error if the role is not available" do
+        Chef::Role.stub!(:from_disk).and_return(nil)
+        Chef::Log.should_receive(:error).with("Role stubby is in the runlist but does not exist. Skipping expand.")
         @run_list.expand("disk")
       end
     end

@@ -7,12 +7,13 @@
       .inner
         %table.table
           %tr
-            %th.first Databag Items
+            %th.first{:colspan => 2} Databag Items
+            %th &nbsp;
             %th.last &nbsp;
             - @databag.sort.each_with_index do |databag_item_uri, index|
               %tr{:class => "#{index % 2 == 1 ? 'odd' : 'even'}"}
-                %td= link_to get_databag_item_name(databag_item_uri), slice_url(:databag_databag_item, :id => get_databag_item_name(databag_item_uri), :databag_id => @databag_name)
+                %td{:colspan => 2}= link_to databag_item_uri[0], slice_url(:databag_databag_item, :id => databag_item_uri[0], :databag_id => @databag_name)
                 %td
-                  = link_to('Edit', slice_url(:edit_databag_databag_item, :id => get_databag_item_name(databag_item_uri), :databag_id => @databag_name)) 
+                  = link_to('Edit', slice_url(:edit_databag_databag_item, :id => databag_item_uri[0], :databag_id => @databag_name)) 
                   |
-                  = link_to('Delete', slice_url(:databag_databag_item, :id => get_databag_item_name(databag_item_uri), :databag_id => @databag_name), :method => "delete", :confirm => "Really delete Databag Item #{get_databag_item_name(databag_item_uri)}?  There is no undo.")
+                  = link_to('Delete', slice_url(:databag_databag_item, :id => databag_item_uri[0], :databag_id => @databag_name), :method => "delete", :confirm => "Really delete Databag Item #{databag_item_uri[0]}?  There is no undo.")

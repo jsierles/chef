@@ -9,16 +9,16 @@ SRCDIR = File.expand_path(File.join(File.dirname(__FILE__), ".."))
 DELAY  = 1
 BASE_CMD = case ARGV[0]
            when "features"
-             "cd #{SRCDIR} && sudo rake dev:features:start:"
+             "cd #{SRCDIR} && rake dev:features:start:"
            when "dev"
-             "cd #{SRCDIR} && sudo rake dev:start:"
+             "cd #{SRCDIR} && rake dev:start:"
            else
-             "cd #{SRCDIR} && sudo rake dev:start:"
+             "cd #{SRCDIR} && rake dev:start:"
            end
 SERVICES = ["couchdb","rabbitmq","chef_solr","chef_solr_indexer","chef_server","chef_webui"]
 
 def auth_up
-  system("sudo echo")  
+  #system("sudo echo")
 end
 
 def create_tab
@@ -32,7 +32,13 @@ def activate_terminal
 end
 
 def start_service_in_last_tab(window,service)
-  app('Terminal').do_script(BASE_CMD+service, :in => window.tabs.last.get)
+  # use xterm escape codes to set the tab title to the service running in the tab.
+  cmd = 
+    "unset PROMPT_COMMAND; echo -e \"\\033]0;#{service}\\007\"; " + 
+    BASE_CMD +
+    service
+
+  app('Terminal').do_script(cmd, :in => window.tabs.last.get)
   sleep DELAY  
 end
 

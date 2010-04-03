@@ -28,7 +28,7 @@ class Chef
         protected
         
         def release_created(release)
-          sorted_releases { |r| r << release }
+          sorted_releases {|r| r.delete(release); r << release }
         end
         
         def release_deleted(release)
@@ -53,8 +53,7 @@ class Chef
         def load_cache
           begin
             JSON.parse(Chef::FileCache.load("revision-deploys/#{new_resource.name}"))
-          rescue
-            Chef::Exceptions::FileNotFound
+          rescue Chef::Exceptions::FileNotFound
             save_cache([])
           end
         end

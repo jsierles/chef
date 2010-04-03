@@ -134,15 +134,11 @@ module Merb
       #for showing search result
       def determine_name(type, object)
         case type
-        when :node, :role
+        when :node, :role, :client
           object.name
         else
           params[:id]
         end
-      end 
-      
-      def get_databag_item_name(uri)
-        uri.split("/").last
       end 
 
       # Recursively build a tree of lists.

@@ -187,7 +187,7 @@ describe Chef::Provider::Deploy do
   
   it "gets a SCM provider as specified by its resource" do
     @provider.scm_provider.should be_an_instance_of(Chef::Provider::Git)
-    @provider.scm_provider.new_resource.destination.should eql("/my/deploy/dir/shared/cached-copy/")
+    @provider.scm_provider.new_resource.destination.should eql("/my/deploy/dir/shared/cached-copy")
   end
   
   it "syncs the cached copy of the repo" do
@@ -196,16 +196,14 @@ describe Chef::Provider::Deploy do
   end
   
   it "makes a copy of the cached repo in releases dir" do
-    FileUtils.should_receive(:mkdir_p).with("/my/deploy/dir/releases")
-    FileUtils.should_receive(:cp_r).with( "/my/deploy/dir/shared/cached-copy/.", 
-                                          @expected_release_dir, 
-                                          :preserve => true)
+    FileUtils.should_receive(:mkdir_p).with("/my/deploy/dir/releases")                                          
+    @provider.should_receive(:run_command).with({:command => "cp -RPp /my/deploy/dir/shared/cached-copy/. #{@expected_release_dir}"})
     @provider.copy_cached_repo
   end
   
   it "calls the internal callback :release_created when copying the cached repo" do
     FileUtils.stub!(:mkdir_p)
-    FileUtils.stub!(:cp_r)
+    @provider.stub!(:run_command).and_return(true)
     @provider.should_receive(:release_created)
     @provider.copy_cached_repo
   end
@@ -412,7 +410,7 @@ describe Chef::Provider::Deploy do
     
     before do
       ::File.stub!(:exist?).with("#{@expected_release_dir}/gems.yml").and_return(true)
-      @gem_list = [{:name=>"ezmobius-nanite",:version=>"0.4.1.2"},{:name=>"eventmachine", :version=>"0.12.9"}]
+      @gem_list = [{:name=>"eventmachine", :version=>"0.12.9"}]
     end
     
     it "reads a gems.yml file, creating gem providers for each with action :upgrade" do
@@ -421,9 +419,9 @@ describe Chef::Provider::Deploy do
       
       gems = @provider.send(:gem_packages)
       
-      gems.map { |g| g.action }.should == [[:install], [:install]]
-      gems.map { |g| g.name }.should == %w{ezmobius-nanite eventmachine}
-      gems.map { |g| g.version }.should == %w{0.4.1.2 0.12.9}
+      gems.map { |g| g.action }.should == [[:install]]
+      gems.map { |g| g.name }.should == %w{eventmachine}
+      gems.map { |g| g.version }.should == %w{0.12.9}
     end
     
     it "takes a list of gem providers converges them" do

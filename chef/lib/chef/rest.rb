@@ -40,10 +40,11 @@ class Chef
     
     attr_accessor :url, :cookies, :client_name, :signing_key, :signing_key_filename, :sign_on_redirect, :sign_request
     
-    def initialize(url, client_name=Chef::Config[:node_name], signing_key_filename=Chef::Config[:client_key])
+    def initialize(url, client_name=Chef::Config[:node_name], signing_key_filename=Chef::Config[:client_key], options={})
       @url = url
       @cookies = CookieJar.instance
       @client_name = client_name
+      @default_headers = options[:headers] || {}
       if signing_key_filename
         @signing_key_filename = signing_key_filename
         @signing_key = load_signing_key(signing_key_filename) 
@@ -56,35 +57,40 @@ class Chef
     end
 
     def load_signing_key(key)
-      if File.exists?(key)
+      begin
         IO.read(key)
-      else
-        raise Chef::Exceptions::PrivateKeyMissing, "I cannot find #{key}, which you told me to use to sign requests!"
+      rescue StandardError=>se
+        Chef::Log.error "Failed to read the private key #{key}: #{se.inspect}, #{se.backtrace}"
+        raise Chef::Exceptions::PrivateKeyMissing, "I cannot read #{key}, which you told me to use to sign requests!"
       end
     end
     
     # Register the client 
     def register(name=Chef::Config[:node_name], destination=Chef::Config[:client_key])
-
-      if File.exists?(destination)
-        raise Chef::Exceptions::CannotWritePrivateKey, "I cannot write your private key to #{destination} - check permissions?" unless File.writable?(destination)
-      end
+      raise Chef::Exceptions::CannotWritePrivateKey, "I cannot write your private key to #{destination} - check permissions?" if (File.exists?(destination) &&  !File.writable?(destination))
 
       nc = Chef::ApiClient.new
       nc.name(name)
-      response = nc.save(true, true)
 
-      Chef::Log.debug("Registration response: #{response.inspect}")
-
-      raise Chef::Exceptions::CannotWritePrivateKey, "The response from the server did not include a private key!" unless response.has_key?("private_key")
-
-      begin
-        # Write out the private key
-        file = File.open(destination, "w")
-        file.print(response["private_key"])
-        file.close
-      rescue 
-        raise Chef::Exceptions::CannotWritePrivateKey, "I cannot write your private key to #{destination}"
+      catch(:done) do
+        retries = Chef::Config[:client_registration_retries] || 5
+        0.upto(retries) do |n|
+          begin
+            response = nc.save(true, true)
+            Chef::Log.debug("Registration response: #{response.inspect}")
+            raise Chef::Exceptions::CannotWritePrivateKey, "The response from the server did not include a private key!" unless response.has_key?("private_key")
+            # Write out the private key
+            file = File.open(destination, File::WRONLY|File::EXCL|File::CREAT, 0600) 
+            file.print(response["private_key"])
+            file.close
+            throw :done
+          rescue IOError
+            raise Chef::Exceptions::CannotWritePrivateKey, "I cannot write your private key to #{destination}"
+          rescue Net::HTTPFatalError => e
+            Chef::Log.warn("Failed attempt #{n} of #{retries+1} on client creation")
+            raise unless e.response.code == "500"
+          end
+        end
       end
 
       true
@@ -123,11 +129,12 @@ class Chef
       end
     end
     
-    def sign_request(http_method, private_key, user_id, body = "", host="localhost")
+    def sign_request(http_method, path, private_key, user_id, body = "", host="localhost")
       #body = "" if body == false
       timestamp = Time.now.utc.iso8601
       sign_obj = Mixlib::Authentication::SignedHeaderAuth.signing_object(
                                                          :http_method=>http_method,
+                                                         :path => path,
                                                          :body=>body,
                                                          :user_id=>user_id,
                                                          :timestamp=>timestamp)
@@ -171,12 +178,16 @@ class Chef
       end
 
       http.read_timeout = Chef::Config[:rest_timeout]
-
+      
+      headers = @default_headers.merge(headers)
+      
       unless raw
         headers = headers.merge({ 
           'Accept' => "application/json",
         })
       end
+
+      headers['X-Chef-Version'] = ::Chef::VERSION
       
       if @cookies.has_key?("#{url.host}:#{url.port}")
         headers['Cookie'] = @cookies["#{url.host}:#{url.port}"]
@@ -188,9 +199,9 @@ class Chef
         raise ArgumentError, "Cannot sign the request without a client name, check that :node_name is assigned" if @client_name.nil?
         Chef::Log.debug("Signing the request as #{@client_name}")
         if json_body
-          headers.merge!(sign_request(method, OpenSSL::PKey::RSA.new(@signing_key), @client_name, json_body, "#{url.host}:#{url.port}"))
+          headers.merge!(sign_request(method, url.path, OpenSSL::PKey::RSA.new(@signing_key), @client_name, json_body, "#{url.host}:#{url.port}"))
         else
-          headers.merge!(sign_request(method, OpenSSL::PKey::RSA.new(@signing_key), @client_name, "", "#{url.host}:#{url.port}"))
+          headers.merge!(sign_request(method, url.path, OpenSSL::PKey::RSA.new(@signing_key), @client_name, "", "#{url.host}:#{url.port}"))
         end
       end
      
@@ -227,9 +238,11 @@ class Chef
 
       res = nil
       tf = nil
-      http_retries = 1
+      http_attempts = 0
 
       begin
+        http_attempts += 1
+        
         res = http.request(req) do |response|
           if raw
             tf = Tempfile.new("chef-rest") 
@@ -278,29 +291,29 @@ class Chef
         else
           if res['content-type'] =~ /json/
             exception = JSON.parse(res.body)
-            Chef::Log.warn("HTTP Request Returned #{res.code} #{res.message}: #{exception["error"].respond_to?(:join) ? exception["error"].join(", ") : exception["error"]}")
+            Chef::Log.debug("HTTP Request Returned #{res.code} #{res.message}: #{exception["error"].respond_to?(:join) ? exception["error"].join(", ") : exception["error"]}")
           end
           res.error!
         end
       
       rescue Errno::ECONNREFUSED
-        Chef::Log.error("Connection refused connecting to #{url.host}:#{url.port} for #{req.path} #{http_retries}/#{http_retry_count}")
-        if (http_retries += 1) < http_retry_count
+        if http_retry_count - http_attempts + 1 > 0
+          Chef::Log.error("Connection refused connecting to #{url.host}:#{url.port} for #{req.path}, retry #{http_attempts}/#{http_retry_count}")
           sleep(http_retry_delay)
           retry
         end
         raise Errno::ECONNREFUSED, "Connection refused connecting to #{url.host}:#{url.port} for #{req.path}, giving up"
       rescue Timeout::Error
-        Chef::Log.error("Timeout connecting to #{url.host}:#{url.port} for #{req.path}, retry #{http_retries}/#{http_retry_count}")
-        if (http_retries += 1) < http_retry_count
+        if http_retry_count - http_attempts + 1 > 0
+          Chef::Log.error("Timeout connecting to #{url.host}:#{url.port} for #{req.path}, retry #{http_attempts}/#{http_retry_count}")
           sleep(http_retry_delay)
           retry
         end
         raise Timeout::Error, "Timeout connecting to #{url.host}:#{url.port} for #{req.path}, giving up"
       rescue Net::HTTPServerException
         if res.kind_of?(Net::HTTPForbidden)
-          Chef::Log.error("Received 403 Forbidden against #{url.host}:#{url.port} for #{req.path}, retry #{http_retries}/#{http_retry_count}")
-          if (http_retries += 1) < http_retry_count
+          if http_retry_count - http_attempts + 1 > 0
+            Chef::Log.error("Received 403 Forbidden against #{url.host}:#{url.port} for #{req.path}, retry #{http_attempts}/#{http_retry_count}")
             sleep(http_retry_delay)
             retry
           end

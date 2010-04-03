@@ -24,15 +24,15 @@ class ChefServerWebui::Search < ChefServerWebui::Application
   before :login_required 
     
   def index
-    begin
-      @s = Chef::Search::Query.new
-      @search_indexes = @s.list_indexes
-      render
-    rescue
-      @search_indexes = {}
-      @_message = {:error => $!}
-      render
-    end 
+    @s = Chef::Search::Query.new
+    @search_indexes = begin
+                        @s.list_indexes
+                      rescue => e
+                        Chef::Log.error("#{e}\n#{e.backtrace.join("\n")}")
+                        @_message = {:error => "Could not list search indexes"}
+                        {}
+                      end 
+    render
   end
 
   def show
@@ -40,7 +40,7 @@ class ChefServerWebui::Search < ChefServerWebui::Application
       @s = Chef::Search::Query.new
       query = params[:q].nil? ? "*:*" : (params[:q].empty? ? "*:*" : params[:q])
       @results = @s.search(params[:id], query)      
-      @type = if params[:id].to_s == "node" || params[:id].to_s == "role" 
+      @type = if params[:id].to_s == "node" || params[:id].to_s == "role" || params[:id].to_s == "client"
                 params[:id]
               else 
                 "databag" 
@@ -51,7 +51,8 @@ class ChefServerWebui::Search < ChefServerWebui::Application
       end
       @results
       render
-    rescue StandardError => e
+    rescue => e
+      Chef::Log.error("#{e}\n#{e.backtrace.join("\n")}")
       @_message = { :error => "Unable to find the #{params[:id]}. (#{$!})" }
       @search_indexes = @s.list_indexes
       render :index

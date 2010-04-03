@@ -20,9 +20,15 @@ require File.expand_path(File.join(File.dirname(__FILE__), "..", "spec_helper"))
 
 class Chef
   class IndexableTestHarness
-    attr_accessor :couchdb_id
-    
     include Chef::IndexQueue::Indexable
+    attr_reader :couchdb_id
+    def couchdb_id=(value)
+      self.index_id = @couchdb_id = value
+    end
+    attr_reader :index_id
+    def index_id=(value)
+        @index_id = value
+    end
   end
 end
 
@@ -63,20 +69,13 @@ describe Chef::IndexQueue::Indexable do
   end
   
   it "adds 'database', 'type', and 'id' (UUID) keys to the published object" do
-    with_metadata = @indexable_obj.with_indexer_metadata(:database => "foo")
+    with_metadata = @indexable_obj.with_indexer_metadata(:database => "foo", :id=>UUIDTools::UUID.random_create.to_s)
     with_metadata.should have(4).keys
     with_metadata.keys.should include("type", "id", "item", "database")
     with_metadata["type"].should      == "indexable_test_harness"
     with_metadata["database"].should  == "foo"
     with_metadata["item"].should      == @indexable_obj
     with_metadata["id"].should match(a_uuid)
-  end
-  
-  it "defaults to the couchdb_database defined in the configuration" do
-    expected_database = "chef_exquisite_cupcake"
-    Chef::Config.stub(:[]).with(:couchdb_database).and_return(expected_database)
-    actual_database = @indexable_obj.with_indexer_metadata["database"]
-    actual_database.should == expected_database
   end
   
   it "uses the couchdb_id if available" do
@@ -91,7 +90,7 @@ describe Chef::IndexQueue::Indexable do
                                                         "type" => "indexable_test_harness",
                                                         "database" => "couchdb@localhost,etc.", 
                                                         "id" => an_instance_of(String)})
-    @indexable_obj.add_to_index(:database => "couchdb@localhost,etc.")
+    @indexable_obj.add_to_index(:database => "couchdb@localhost,etc.", :id=>UUIDTools::UUID.random_create.to_s)
   end
   
   it "sends ``delete'' actions" do
@@ -99,7 +98,7 @@ describe Chef::IndexQueue::Indexable do
                                                             "type" => "indexable_test_harness",
                                                             "database" => "couchdb2@localhost", 
                                                             "id" => an_instance_of(String)})
-    @indexable_obj.delete_from_index(:database => "couchdb2@localhost")
+    @indexable_obj.delete_from_index(:database => "couchdb2@localhost", :id=>UUIDTools::UUID.random_create.to_s)
   end
   
 end

@@ -6,9 +6,9 @@
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-# 
+#
 #     http://www.apache.org/licenses/LICENSE-2.0
-# 
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -26,14 +26,14 @@ class Chef
   class Solr
     class Application
       class Rebuild < Chef::Application
-  
-        option :config_file, 
+
+        option :config_file,
           :short => "-c CONFIG",
           :long  => "--config CONFIG",
           :default => "/etc/chef/solr.rb",
           :description => "The configuration file to use"
 
-        option :log_level, 
+        option :log_level,
           :short        => "-l LEVEL",
           :long         => "--log_level LEVEL",
           :description  => "Set the log level (debug, info, warn, error, fatal)",
@@ -54,30 +54,6 @@ class Chef
           :show_options => true,
           :exit         => 0
 
-        option :nanite_identity,
-          :long => "--nanite-identity ID",
-          :description => "The nanite identity"
-
-        option :nanite_host,
-          :long => "--nanite-host HOST",
-          :description => "The nanite host"
-
-        option :nanite_port,
-          :long => "--nanite-port PORT",
-          :description => "The nanite port"
-
-        option :nanite_user,
-          :long => "--nanite-user USER",
-          :description => "The nanite user"
-
-        option :nanite_pass,
-          :long => "--nanite-pass PASS",
-          :description => "The nanite password"
-
-        option :nanite_vhost,
-          :long => "--nanite-vhost VHOST",
-          :description => "The nanite vhost"
-
         option :couchdb_database,
           :short => "-d DB",
           :long => "--couchdb-database DB",
@@ -87,6 +63,14 @@ class Chef
           :short => "-u URL",
           :long => "--couchdb-url URL",
           :description => "The CouchDB URL"
+
+        option :version,
+          :short => "-v",
+          :long => "--version",
+          :description => "Show chef-solr-rebuild version",
+          :boolean => true,
+          :proc => lambda {|v| puts "chef-solr-rebuild: #{::Chef::Solr::VERSION}"},
+          :exit => 0
 
         def initialize
           super

@@ -7,7 +7,7 @@ require 'openssl'
 class Chef
   class StreamingCookbookUploader
 
-    DefaultHeaders = { 'accept' => 'application/json' }
+    DefaultHeaders = { 'accept' => 'application/json', 'x-chef-version' => ::Chef::VERSION }
     
     class << self
 
@@ -23,7 +23,6 @@ class Chef
         boundary = '----RubyMultipartClient' + rand(1000000).to_s + 'ZZZZZ'
         parts = []
         content_file = nil
-        content_body = nil
         
         timestamp = Time.now.utc.iso8601
         secret_key = OpenSSL::PKey::RSA.new(File.read(secret_key_filename))
@@ -40,10 +39,9 @@ class Chef
               parts << StreamPart.new(value, File.size(filepath))
               parts << StringPart.new("\r\n")
             else
-              content_body = value.to_s
               parts << StringPart.new( "--" + boundary + "\r\n" +
                                        "Content-Disposition: form-data; name=\"" + key.to_s + "\"\r\n\r\n")
-              parts << StringPart.new(content_body + "\r\n")
+              parts << StringPart.new(value.to_s + "\r\n")
             end
           end
           parts << StringPart.new("--" + boundary + "--\r\n")
@@ -53,10 +51,22 @@ class Chef
         
         timestamp = Time.now.utc.iso8601
         
-        Chef::Log.logger.debug("Signing: method: #{http_verb}, file: #{content_file}, User-id: #{user_id}, Timestamp: #{timestamp}")
+        url = URI.parse(to_url)
+        
+        Chef::Log.logger.debug("Signing: method: #{http_verb}, path: #{url.path}, file: #{content_file}, User-id: #{user_id}, Timestamp: #{timestamp}")
+        
+        # We use the body for signing the request if the file parameter
+        # wasn't a valid file or wasn't included. Extract the body (with 
+        # multi-part delimiters intact) to sign the request.
+        # TODO: tim: 2009-12-28: It'd be nice to remove this special case, and
+        # always hash the entire request body. In the file case it would just be
+        # expanded multipart text - the entire body of the POST.
+        content_body = parts.inject("") { |result,part| result + part.read(0, part.size) }
+        content_file.rewind if content_file # we consumed the file for the above operation, so rewind it.
         
         signing_options = {
           :http_method=>http_verb,
+          :path=>url.path,
           :user_id=>user_id,
           :timestamp=>timestamp}
         (content_file && signing_options[:file] = content_file) || (signing_options[:body] = (content_body || ""))
@@ -68,7 +78,6 @@ class Chef
         # net/http doesn't like symbols for header keys, so we'll to_s each one just in case
         headers = DefaultHeaders.merge(Hash[*headers.map{ |k,v| [k.to_s, v] }.flatten])
 
-        url = URI.parse(to_url)
         req = case http_verb
               when :put
                 Net::HTTP::Put.new(url.path, headers)

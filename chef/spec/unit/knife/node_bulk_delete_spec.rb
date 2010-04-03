@@ -24,7 +24,7 @@ describe Chef::Knife::NodeBulkDelete do
     @knife.config = {
       :print_after => nil
     }
-    @knife.name_args = [] 
+    @knife.name_args = ["."] 
     @knife.stub!(:json_pretty_print).and_return(true)
     @knife.stub!(:confirm).and_return(true)
     @nodes = Hash.new
@@ -61,14 +61,17 @@ describe Chef::Knife::NodeBulkDelete do
       @knife.run
     end
 
-    describe "with -r or --regex" do
-      it "should only delete nodes that match the regex" do
-        @knife.config[:regex] = 'adam'
-        @nodes['adam'].should_receive(:destroy)
-        @nodes['brent'].should_not_receive(:destroy)
-        @nodes['jacob'].should_not_receive(:destroy)
-        @knife.run
-      end
+    it "should only delete nodes that match the regex" do
+      @knife.name_args = ['adam']
+      @nodes['adam'].should_receive(:destroy)
+      @nodes['brent'].should_not_receive(:destroy)
+      @nodes['jacob'].should_not_receive(:destroy)
+      @knife.run
+    end
+
+    it "should exit if the regex is not provided" do
+      @knife.name_args = []
+      lambda { @knife.run }.should raise_error(SystemExit)
     end
 
     describe "with -p or --print-after" do

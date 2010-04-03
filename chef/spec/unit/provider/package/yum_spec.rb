@@ -26,7 +26,8 @@ describe Chef::Provider::Package::Yum, "load_current_resource" do
       :name => "cups",
       :version => nil,
       :package_name => "cups",
-      :updated => nil
+      :updated => nil,
+      :source => nil
     )
     @current_resource = mock("Chef::Resource::Package", 
       :null_object => true,
@@ -90,7 +91,8 @@ describe Chef::Provider::Package::Yum, "install_package" do
       :name => "emacs",
       :version => nil,
       :package_name => "emacs",
-      :updated => nil
+      :updated => nil,
+      :source => nil
     )
 		@yum_cache = mock(
 			'Chef::Provider::Yum::YumCache',
@@ -109,6 +111,15 @@ describe Chef::Provider::Package::Yum, "install_package" do
     })
     @provider.install_package("emacs", "1.0")
   end
+
+  it "should run yum localinstall if given a path to an rpm" do
+    @new_resource.stub!(:source).and_return("/tmp/emacs-21.4-20.el5.i386.rpm")
+    @provider.should_receive(:run_command_with_systems_locale).with({
+      :command => "yum -d0 -e0 -y localinstall /tmp/emacs-21.4-20.el5.i386.rpm"
+    })
+    @provider.install_package("emacs", "21.4-20.el5")
+  end
+
 end
 
 describe Chef::Provider::Package::Yum, "upgrade_package" do
@@ -120,7 +131,8 @@ describe Chef::Provider::Package::Yum, "upgrade_package" do
       :name => "emacs",
       :version => nil,
       :package_name => "emacs",
-      :updated => nil
+      :updated => nil,
+      :source => nil
     )
 		@yum_cache = mock(
 			'Chef::Provider::Yum::YumCache',
@@ -142,9 +154,16 @@ describe Chef::Provider::Package::Yum, "upgrade_package" do
     @provider.current_resource = @current_resource
   end
   
-  it "should run yum update if the package is installed" do
+  it "should run yum update if the package is installed and no version is given" do
     @provider.should_receive(:run_command_with_systems_locale).with({
-      :command => "yum -d0 -e0 -y update emacs-11"
+      :command => "yum -d0 -e0 -y update emacs"
+    })
+    @provider.upgrade_package(@new_resource.name, nil)
+  end
+  
+  it "should run yum install if the package is installed and a version is given" do
+    @provider.should_receive(:run_command_with_systems_locale).with({
+      :command => "yum -d0 -e0 -y install emacs-11"
     })
     @provider.upgrade_package(@new_resource.name, @provider.candidate_version)
   end
@@ -166,7 +185,8 @@ describe Chef::Provider::Package::Yum, "remove_package" do
       :name => "emacs",
       :version => nil,
       :package_name => "emacs",
-      :updated => nil
+      :updated => nil,
+      :source => nil
     )
 		@yum_cache = mock(
 			'Chef::Provider::Yum::YumCache',
@@ -195,7 +215,8 @@ describe Chef::Provider::Package::Yum, "purge_package" do
       :name => "emacs",
       :version => "10",
       :package_name => "emacs",
-      :updated => nil
+      :updated => nil,
+      :source => nil
     )
 		@yum_cache = mock(
 			'Chef::Provider::Yum::YumCache',

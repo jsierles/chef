@@ -89,6 +89,13 @@ Before do
         r.default_attributes({ 'a' => 'bake' })
         r.override_attributes({ 'c' => 'down' })
         r 
+      end,
+      'role_not_exist' => Proc.new do
+        r = Chef::Role.new
+        r.name 'role_not_exist'
+        r.description "Non-existent nested role"
+        r.run_list << "role[not_exist]"
+        r
       end
     },
     'node' => {
@@ -121,6 +128,12 @@ Before do
         n.name 'sync'
         n.run_list << "node_cookbook_sync"
         n
+      end, 
+      'role_not_exist' => Proc.new do
+        n = Chef::Node.new
+        n.name 'role_not_exist'
+        n.run_list << "role[not_exist]"
+        n
       end
     },
     'hash' => {
@@ -151,10 +164,11 @@ Before do
   @stash = {}
 end
 
-def sign_request(http_method, private_key, user_id, body = "")
+def sign_request(http_method, path, private_key, user_id, body = "")
   timestamp = Time.now.utc.iso8601
   sign_obj = Mixlib::Auth::SignedHeaderAuth.signing_object(
                                                      :http_method=>http_method,
+                                                     :path=>path,
                                                      :body=>body,
                                                      :user_id=>user_id,
                                                      :timestamp=>timestamp)
@@ -204,15 +218,16 @@ Given /^an? '(.+)' named '(.+)' exists$/ do |stash_name, stash_key|
   else 
     if @stash[stash_name].respond_to?(:cdb_save)
       @stash[stash_name].cdb_save
-    elsif @stash[stash_name].respond_to?(:save)#stash_name == "registration" 
+    elsif @stash[stash_name].respond_to?(:save)
       @stash[stash_name].save
     else
-      request("#{stash_name.pluralize}", { 
-        :method => "POST", 
+      request_path = "/#{stash_name.pluralize}"
+      request(request_path, {
+        :method => "POST",
         "HTTP_ACCEPT" => 'application/json',
         "CONTENT_TYPE" => 'application/json',
-        :input => @stash[stash_name].to_json 
-      }.merge(sign_request("POST", OpenSSL::PKey::RSA.new(IO.read("#{tmpdir}/client.pem")), "bobo")))
+        :input => @stash[stash_name].to_json
+      }.merge(sign_request("POST", request_path, OpenSSL::PKey::RSA.new(IO.read("#{tmpdir}/client.pem")), "bobo")))
     end
   end
 end
