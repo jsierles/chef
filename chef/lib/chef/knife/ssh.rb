@@ -23,6 +23,8 @@ class Chef
   class Knife
     class Ssh < Knife
 
+      attr_writer :password
+
       banner "Sub-Command: ssh QUERY COMMAND (options)"
 
       option :concurrency,
@@ -44,10 +46,19 @@ class Chef
         :description => "QUERY is a space separated list of servers",
         :default => false
 
+      option :ssh_user,
+        :short => "-x USERNAME",
+        :long => "--ssh-user USERNAME",
+        :description => "The ssh username"
+
+      option :ssh_password,
+        :short => "-P PASSWORD",
+        :long => "--ssh-password PASSWORD",
+        :description => "The ssh password"
+
       def session
         @session ||= Net::SSH::Multi.start(:concurrent_connections => config[:concurrency])
       end
-
 
       def h
         @highline ||= HighLine.new
@@ -71,7 +82,12 @@ class Chef
       def session_from_list(list)
         list.each do |item|
           Chef::Log.debug("Adding #{item}")
-          session.use item 
+         
+          if config[:password]
+            session.use config[:ssh_user] ? "#{config[:ssh_user]}@#{item}" : item, :password => config[:password]
+          else
+            session.use config[:ssh_user] ? "#{config[:ssh_user]}@#{item}" : item
+          end
           @longest = item.length if item.length > @longest
         end
         session
@@ -173,8 +189,9 @@ class Chef
         tf.puts("caption always '%w'")
         tf.puts("hardstatus alwayslastline 'knife ssh #{@name_args[0]}'")
         window = 0
-        session.servers_for.collect { |s| s.host }.each do |server|
-          tf.puts("screen -t \"#{server}\" #{window} ssh #{server}")
+        session.servers_for.each do |server|
+          tf.print("screen -t \"#{server.host}\" #{window} ssh ")
+          server.user ? tf.puts("#{server.user}@#{server.host}") : tf.puts(server.host)
           window += 1
         end
         tf.close
